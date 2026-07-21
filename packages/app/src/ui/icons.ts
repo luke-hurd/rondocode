@@ -38,6 +38,8 @@ const ICONS: Record<string, string> = {
   download: '<path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/>',
   // record — filled dot
   record: '<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>',
+  // dots — overflow "more" menu
+  dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
 }
 
 export function icon(name: string): string {

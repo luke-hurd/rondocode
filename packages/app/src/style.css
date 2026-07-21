@@ -1514,3 +1514,43 @@ body.shaderviz-on .cm-content {
     animation: none;
   }
 }
+
+/* header overflow menu (ui/header-overflow.ts) */
+.more-btn {
+  display: none; /* only phones, where the controls would overflow the row */
+  min-width: var(--h-ctrl);
+}
+.more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.more-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 200px;
+  max-width: min(300px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.more-pop.hidden {
+  display: none;
+}
+.more-pop .btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+}
+.more-pop .btn-label {
+  display: inline; /* labels show in the menu (the bar hides them) */
+}
+@media (max-width: 560px) {
+  .more-btn {
+    display: inline-flex;
+  }
+}

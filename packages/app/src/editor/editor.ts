@@ -213,7 +213,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
   const exportBtn = el('button', 'btn export-btn')
   exportBtn.type = 'button'
-  exportBtn.replaceChildren(iconEl('download'))
+  exportBtn.replaceChildren(iconEl('download'), el('span', 'btn-label', 'export'))
   controls.append(sampleBtn, exportBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
