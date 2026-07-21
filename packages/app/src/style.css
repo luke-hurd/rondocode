@@ -1388,7 +1388,11 @@ body.shaderviz-on .cm-content {
   display: none;
 }
 .run .btn-label {
-  display: inline;
+  /* reserve the width of the longest label ("update", 6 monospace ch) and
+     center within it, so run <-> update never resizes the button */
+  display: inline-block;
+  min-width: 6ch;
+  text-align: center;
 }
 @media (max-width: 560px) {
   .run .btn-label {
