@@ -120,8 +120,8 @@ export class Voice {
     this.grBal = (Math.sin(q * HALF_PI) * Math.SQRT2)
   }
 
-  /** Start (or retrigger) a note: notefreq = 440*2^((n-69)/12), notemidi = n,
-   *  gate = 1, velocity clamped to [0, 1]. Kernels are NOT reset (see class doc). */
+  /** Start (or retrigger) a note: notefreq = 440*2^((n-69)/12), gate = 1,
+   *  velocity clamped to [0, 1]. Kernels are NOT reset (see class doc). */
   noteOn(midiNote: number, velocity: number): void {
     const g = this.graph
     this.midiNote = midiNote
@@ -130,7 +130,6 @@ export class Voice {
     this.silentBlocks = 0
     const v = clamp(velocity, 0, 1)
     this.vel = v
-    g.noteMidi.fill(midiNote)
     if (this.glideCoeff === 0) {
       // Instant pitch (default): fill notefreq once. detuneMul is 1 for a
       // non-unison voice, and `freq * 1 === freq`, so this stays byte-identical.
@@ -155,7 +154,6 @@ export class Voice {
    *  Velocity is left untouched so amplitude does not jump mid-slide. */
   glideTo(midiNote: number): void {
     this.midiNote = midiNote
-    this.graph.noteMidi.fill(midiNote)
     if (this.glideCoeff === 0) {
       this.graph.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul)
     } else {
