@@ -1,10 +1,5 @@
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
-import { encodeWav16 } from '@rondocode/engine'
 import workletUrl from './worklet/processor?worker&url'
-import captureUrl from './worklet/capture?worker&url'
-
-/** Hard cap so a forgotten record can't OOM the tab (~10 min @ 48 kHz stereo). */
-const MAX_RECORD_FRAMES = 48000 * 60 * 10
 
 /* Main-thread side of the audio stack: owns the AudioContext and the
  * AudioWorkletNode hosting RealtimeEngine (see ./processor.ts), and speaks
@@ -53,10 +48,12 @@ export class AudioSession {
   >()
   private _preview: AudioBufferSourceNode | null = null
 
-  private capture: AudioWorkletNode | null = null
-  private recording = false
-  private recChunks: { l: Float32Array; r: Float32Array }[] = []
-  private recFrames = 0
+  // ---- live session recording (upstream: ScriptProcessor tap) ----
+  private recNode: ScriptProcessorNode | null = null
+  private recSink: GainNode | null = null
+  private recL: Float32Array[] = []
+  private recR: Float32Array[] = []
+  private recStartSec = 0
 
   private constructor(
     private readonly context: AudioContext,
@@ -67,9 +64,14 @@ export class AudioSession {
     node.port.onmessage = (e: MessageEvent) => this.onEvent?.(e.data as EngineEvent)
   }
 
-  /** True while master-bus PCM capture is armed. */
+  /** True while a live session recording is in progress. */
   get isRecording(): boolean {
-    return this.recording
+    return this.recNode !== null
+  }
+
+  /** Seconds captured so far (0 when not recording). */
+  get recordingSeconds(): number {
+    return this.recNode ? this.context.currentTime - this.recStartSec : 0
   }
 
   /** Create the context + worklet graph. Safe to call at page load: the
@@ -107,76 +109,13 @@ export class AudioSession {
         }
         node.connect(context.destination)
       }
-      // Capture tap (optional): analyser → capture worklet (silent sink).
-      // Fail-open — recording is nicety; audio must keep playing without it.
-      let capture: AudioWorkletNode | null = null
-      if (analyser) {
-        try {
-          await context.audioWorklet.addModule(captureUrl)
-          capture = new AudioWorkletNode(context, 'rondocode-capture', {
-            numberOfInputs: 1,
-            numberOfOutputs: 1,
-            outputChannelCount: [2],
-            channelCount: 2,
-          })
-          analyser.connect(capture)
-          // Capture node has no useful output — leave it unconnected.
-        } catch (capErr) {
-          console.warn('[audio] capture worklet failed; recording disabled', capErr)
-          capture = null
-        }
-      }
-      const session = new AudioSession(context, node, analyser)
-      session.capture = capture
-      if (capture) {
-        capture.port.onmessage = (e: MessageEvent) => {
-          if (!session.recording) return
-          const data = e.data as { l?: Float32Array; r?: Float32Array }
-          if (!(data.l instanceof Float32Array) || !(data.r instanceof Float32Array)) return
-          if (session.recFrames + data.l.length > MAX_RECORD_FRAMES) {
-            session.stopRecording() // auto-stop at cap
-            return
-          }
-          session.recChunks.push({ l: data.l, r: data.r })
-          session.recFrames += data.l.length
-        }
-      }
       // Do NOT resume here: at page load there's no user gesture yet. The
       // context stays suspended (silent) until the first Run calls resume().
-      return session
+      return new AudioSession(context, node, analyser)
     } catch (e) {
       context.close().catch(() => {})
       throw e
     }
-  }
-
-  /** Arm master-bus PCM capture. No-op if capture worklet unavailable. */
-  startRecording(): boolean {
-    if (!this.capture) return false
-    this.recChunks = []
-    this.recFrames = 0
-    this.recording = true
-    return true
-  }
-
-  /** Stop capture and return a 16-bit stereo WAV, or null if nothing recorded. */
-  stopRecording(): Uint8Array | null {
-    this.recording = false
-    if (this.recFrames === 0 || this.recChunks.length === 0) {
-      this.recChunks = []
-      return null
-    }
-    const left = new Float32Array(this.recFrames)
-    const right = new Float32Array(this.recFrames)
-    let o = 0
-    for (const c of this.recChunks) {
-      left.set(c.l, o)
-      right.set(c.r, o)
-      o += c.l.length
-    }
-    this.recChunks = []
-    this.recFrames = 0
-    return encodeWav16(left, right, this.context.sampleRate)
   }
 
   send(msg: EngineMessage): void {
@@ -258,23 +197,6 @@ export class AudioSession {
     void this.context.resume()
     src.start()
     this._preview = src
-  }
-
-  // ---- live session recording (a PCM tap off the worklet output) ----
-  private recNode: ScriptProcessorNode | null = null
-  private recSink: GainNode | null = null
-  private recL: Float32Array[] = []
-  private recR: Float32Array[] = []
-  private recStartSec = 0
-
-  /** True while a live session recording is in progress. */
-  get isRecording(): boolean {
-    return this.recNode !== null
-  }
-
-  /** Seconds captured so far (0 when not recording). */
-  get recordingSeconds(): number {
-    return this.recNode ? this.context.currentTime - this.recStartSec : 0
   }
 
   /** Start capturing the live output to memory. A ScriptProcessor taps the

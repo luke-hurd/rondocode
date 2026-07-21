@@ -61,7 +61,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     const wrap = el('div', 'samples-rowwrap')
     const play = el('button', 'samples-play')
     play.type = 'button'
-    play.title = `preview ${s.name}`
+    tooltip(play, `preview ${s.name}`)
     play.append(iconEl('play'))
     play.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -70,7 +70,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     wrap.append(play)
     const row = el('button', 'samples-row')
     row.type = 'button'
-    row.title = `insert sample(gate, '${s.name}')`
+    tooltip(row, `insert sample(gate, '${s.name}')`)
     const name = el('span', 'samples-name', s.name)
     if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
     row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
@@ -79,7 +79,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     if (!s.builtIn) {
       const rm = el('button', 'samples-rm')
       rm.type = 'button'
-      rm.title = `remove ${s.name}`
+      tooltip(rm, `remove ${s.name}`)
       rm.append(iconEl('x'))
       rm.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -101,34 +101,10 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     const order: string[] = []
     const groups = new Map<string, typeof samples>()
     for (const s of samples) {
-      const wrap = el('div', 'samples-rowwrap')
-      const play = el('button', 'samples-play')
-      play.type = 'button'
-      tooltip(play, `preview ${s.name}`)
-      play.append(iconEl('play'))
-      play.addEventListener('click', (e) => {
-        e.stopPropagation()
-        audio.previewSample(s.name)
-      })
-      wrap.append(play)
-      const row = el('button', 'samples-row')
-      row.type = 'button'
-      tooltip(row, `insert sample(gate, '${s.name}')`)
-      const name = el('span', 'samples-name', s.name)
-      if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
-      row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
-      row.addEventListener('click', () => insert(s.name))
-      wrap.append(row)
-      if (!s.builtIn) {
-        const rm = el('button', 'samples-rm')
-        rm.type = 'button'
-        tooltip(rm, `remove ${s.name}`)
-        rm.append(iconEl('x'))
-        rm.addEventListener('click', (e) => {
-          e.stopPropagation()
-          audio.removeSample(s.name)
-        })
-        wrap.append(rm)
+      const key = s.pack ?? (s.builtIn ? 'built-in' : 'yours')
+      if (!groups.has(key)) {
+        groups.set(key, [])
+        order.push(key)
       }
       groups.get(key)!.push(s)
     }
