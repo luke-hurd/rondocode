@@ -26,6 +26,7 @@ import type { SessionState } from '../session/Session'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
+import { mountSamplesPopover } from './samples'
 import { EXAMPLES } from '../examples'
 import { synthTheme } from './theme'
 import { EventFlasher, FLASH_MS, flashExtension } from './flash'
@@ -186,29 +187,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   fileInput.accept = 'audio/*'
   fileInput.multiple = true
   fileInput.hidden = true
-  const flashLabel = (text: string): void => {
-    // brief feedback replaces the whole button (visible on mobile too), then
-    // restores the icon + label.
-    sampleBtn.replaceChildren(document.createTextNode(text))
-    setTimeout(renderSample, 2200)
-  }
-  sampleBtn.addEventListener('click', () => fileInput.click())
-  fileInput.addEventListener('change', () => {
-    const files = fileInput.files ? Array.from(fileInput.files) : []
-    fileInput.value = '' // let the same file be re-picked later
-    void (async () => {
-      for (const f of files) {
-        const name = f.name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '_')
-        try {
-          const n = await audio.loadSample(name, await f.arrayBuffer())
-          flashLabel(`✓ ${name} (${(n / audio.sampleRate).toFixed(1)}s)`)
-        } catch (e) {
-          console.warn('[sample] load failed', name, e)
-          flashLabel(`✗ ${name}`)
-        }
-      }
-    })()
-  })
+  // The samples popover (mounted below, once the editor view exists) wires the
+  // button toggle, file loading, and the list of what's loaded.
 
   // Master output meter, styled as the header's living baseline hairline.
   const meter = el('div', 'meter')
@@ -236,9 +216,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Default demo samples so `sample()` works out of the box (users add their
   // own via the button above). Generated PCM fed through the real sample path.
   try {
-    audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate)
-    audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate)
-    audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate)
+    audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
+    audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
+    audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
   } catch (e) {
     console.warn('[sample] default sample load failed', e)
   }
@@ -614,6 +594,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // buffer replaced; press Run to play it from the top
   }
 
+  // samples popover: lists loaded samples (built-in + user), inserts
+  // sample(gate, 'name') at the cursor, and loads audio files.
+  const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
+
   const dispose = (): void => {
     window.removeEventListener('pagehide', flushSave)
     document.removeEventListener('visibilitychange', onVisibility)
@@ -622,6 +606,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     session.dispose()
     flasher.dispose()
     meters.dispose()
+    disposeSamples()
     engineListeners.clear()
     stateListeners.clear()
     docListeners.clear()

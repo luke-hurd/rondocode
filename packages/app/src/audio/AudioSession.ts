@@ -15,6 +15,14 @@ import workletUrl from './worklet/processor?worker&url'
  * vite.config.ts) whose URL lands here. AudioWorklet always loads modules,
  * so a Worker-flavored module URL is exactly what addModule needs. */
 
+/** A sample loaded into the engine, as tracked on the main thread for the UI. */
+export interface SampleInfo {
+  name: string
+  /** length in frames at `sampleRate` */ frames: number
+  sampleRate: number
+  /** true for the demo samples shipped by default (vox/riser/pad) */ builtIn: boolean
+}
+
 export class AudioSession {
   /** Engine → host events (errors, meters), forwarded from the node's port.
    *  Single-listener by design: the Session layer (Task 3.2) owns this and
@@ -24,6 +32,12 @@ export class AudioSession {
   /** Visualizer tap (worklet → analyser → destination), or null when the
    *  tap could not be built — viz then simply has no data (see start()). */
   readonly analyser: AnalyserNode | null
+
+  /** Main-thread mirror of the samples loaded into the worklet, in load order
+   *  (built-ins first). The worklet is the source of truth for playback; this
+   *  is just so the UI can list what is loadable by name. */
+  private readonly _samples: SampleInfo[] = []
+  private readonly sampleListeners = new Set<() => void>()
 
   private constructor(
     private readonly context: AudioContext,
@@ -100,15 +114,51 @@ export class AudioSession {
       { kind: 'loadSample', name, data: mono, sampleRate: buf.sampleRate } satisfies EngineMessage,
       [mono.buffer],
     )
+    this.recordSample(name, n, buf.sampleRate, false)
     return n
   }
 
-  /** Load raw mono PCM directly (e.g. a procedurally generated buffer). */
-  loadSamplePcm(name: string, data: Float32Array, sampleRate: number): void {
+  /** Load raw mono PCM directly (e.g. a procedurally generated buffer). Pass
+   *  builtIn:true for the demo samples so the UI can label them. */
+  loadSamplePcm(name: string, data: Float32Array, sampleRate: number, builtIn = false): void {
+    const frames = data.length // read before postMessage transfers the buffer
     this.node.port.postMessage(
       { kind: 'loadSample', name, data, sampleRate } satisfies EngineMessage,
       [data.buffer],
     )
+    this.recordSample(name, frames, sampleRate, builtIn)
+  }
+
+  /** The samples loaded so far (a copy), built-ins first, then user files. */
+  getSamples(): SampleInfo[] {
+    return [...this._samples]
+  }
+
+  /** Subscribe to sample-list changes (load/remove). Returns an unsubscribe. */
+  onSamplesChanged(fn: () => void): () => void {
+    this.sampleListeners.add(fn)
+    return () => this.sampleListeners.delete(fn)
+  }
+
+  /** Drop a loaded sample; synths referencing it fall back to silence. */
+  removeSample(name: string): void {
+    const i = this._samples.findIndex((s) => s.name === name)
+    if (i === -1) return
+    this.node.port.postMessage({ kind: 'clearSample', name } satisfies EngineMessage)
+    this._samples.splice(i, 1)
+    this.notifySamples()
+  }
+
+  private recordSample(name: string, frames: number, sampleRate: number, builtIn: boolean): void {
+    const info: SampleInfo = { name, frames, sampleRate, builtIn }
+    const i = this._samples.findIndex((s) => s.name === name)
+    if (i === -1) this._samples.push(info) // built-ins load first, so stay first
+    else this._samples[i] = info // re-loading a name overwrites in place
+    this.notifySamples()
+  }
+
+  private notifySamples(): void {
+    for (const fn of this.sampleListeners) fn()
   }
 
   get sampleRate(): number {

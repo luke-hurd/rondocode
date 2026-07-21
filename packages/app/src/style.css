@@ -98,6 +98,124 @@ body {
   white-space: nowrap;
 }
 
+/* samples popover: the loaded-samples list anchored under the sample button */
+.samples-pop {
+  position: fixed;
+  z-index: 45; /* above the project sheet backdrop (40) */
+  min-width: 220px;
+  max-width: min(320px, 92vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-2);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.samples-pop.hidden {
+  display: none;
+}
+.samples-head {
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-dim);
+  padding: 0 var(--sp-1) var(--sp-1);
+}
+.samples-empty {
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+  padding: var(--sp-2) var(--sp-1);
+}
+.samples-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.samples-rowwrap {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.samples-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.samples-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.samples-tag {
+  margin-left: var(--sp-1);
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.samples-dur {
+  flex: none;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  font-variant-numeric: tabular-nums;
+}
+.samples-rm {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-ctrl);
+  padding: 0;
+  color: var(--c-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.samples-load {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-ctrl);
+  color: var(--c-accent);
+  background: transparent;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.samples-load svg,
+.samples-rm svg {
+  width: 14px;
+  height: 14px;
+}
+@media (hover: hover) {
+  .samples-row:hover {
+    background: var(--c-surface);
+    border-color: var(--c-border);
+  }
+  .samples-rm:hover {
+    color: var(--c-error);
+  }
+  .samples-load:hover {
+    background: var(--c-surface);
+  }
+}
+
 /* Master output meter, reimagined as the header's living baseline: a thin
  * line sitting on the bottom border that fills + glows with the output level. */
 .meter {
