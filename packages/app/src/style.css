@@ -1403,3 +1403,114 @@ body.shaderviz-on .cm-content {
     gap: 0;
   }
 }
+
+/* export popover (editor/export.ts) */
+.export-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 244px;
+  max-width: min(340px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.export-pop.hidden {
+  display: none;
+}
+.export-head {
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-dim);
+}
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.export-label {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.export-cycles {
+  width: 4rem;
+  padding: var(--sp-1) var(--sp-2);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
+.export-btn {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.export-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.export-btn.armed {
+  color: var(--c-error);
+  border-color: var(--c-error-border);
+}
+.export-hint,
+.export-msg {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.export-msg {
+  min-height: 1em;
+}
+@media (hover: hover) {
+  .export-btn:hover {
+    background: var(--c-surface);
+    border-color: var(--c-dim);
+  }
+}
+
+/* recording pill next to the export button in the header */
+.rec-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-1);
+  color: var(--c-error);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+}
+.rec-pill.hidden {
+  display: none;
+}
+.rec-pill svg {
+  width: 10px;
+  height: 10px;
+  animation: rec-blink 1s steps(2, start) infinite;
+}
+@keyframes rec-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-pill svg {
+    animation: none;
+  }
+}

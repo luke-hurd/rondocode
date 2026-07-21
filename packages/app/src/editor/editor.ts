@@ -27,6 +27,7 @@ import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
+import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { synthTheme } from './theme'
@@ -210,7 +211,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const dirtyDot = el('span', 'dirty-dot')
   tooltip(dirtyDot, 'edited since last run')
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
-  controls.append(sampleBtn, stopBtn, runBtn)
+  const exportBtn = el('button', 'btn export-btn')
+  exportBtn.type = 'button'
+  exportBtn.replaceChildren(iconEl('download'))
+  controls.append(sampleBtn, exportBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -598,6 +602,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
   const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
+  const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
   const dispose = (): void => {
     window.removeEventListener('pagehide', flushSave)
@@ -608,6 +613,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     flasher.dispose()
     meters.dispose()
     disposeSamples()
+    disposeExport()
     engineListeners.clear()
     stateListeners.clear()
     docListeners.clear()
