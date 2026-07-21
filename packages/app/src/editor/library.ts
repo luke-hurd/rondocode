@@ -13,7 +13,9 @@
  * ------------------------------------------------------------------------- */
 
 import type { EditorHandle } from './editor'
-import { icon } from '../ui/icons'
+import { icon, iconEl } from '../ui/icons'
+import { overlayClosed, overlayOpened } from '../ui/overlays'
+import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore } from '../session/projects'
 import type { Project } from '../session/projects'
@@ -124,8 +126,12 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- top-bar control -------------------------------------------------------
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
+  projectBtn.setAttribute('aria-expanded', 'false')
   const setLabel = (name: string): void => {
-    projectBtn.textContent = `${name} ▾`
+    // name (ellipsizes) + a fixed chevron, so the affordance survives a long
+    // name; full name in the title since the button truncates.
+    projectBtn.replaceChildren(el('span', 'project-name', name), iconEl('chevron'))
+    tooltip(projectBtn, `${name} (projects, Cmd/Ctrl+P)`)
   }
   setLabel(active.name)
   // place right after the logo
@@ -134,13 +140,23 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- sheet -----------------------------------------------------------------
   const backdrop = el('div', 'sheet-backdrop hidden')
   const sheet = el('aside', 'sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', 'projects')
   backdrop.append(sheet)
   document.body.append(backdrop)
 
-  const closeSheet = (): void => backdrop.classList.add('hidden')
+  const closeSheet = (): void => {
+    backdrop.classList.add('hidden')
+    projectBtn.setAttribute('aria-expanded', 'false')
+    overlayClosed(closeSheet)
+    projectBtn.focus() // restore focus to the trigger
+  }
   const openSheet = (): void => {
-    void render()
+    overlayOpened(closeSheet) // close any other open sheet
     backdrop.classList.remove('hidden')
+    projectBtn.setAttribute('aria-expanded', 'true')
+    void render().then(() => (sheet.querySelector('input, button') as HTMLElement | null)?.focus())
   }
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeSheet()
@@ -235,7 +251,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
 
     // new project + new from example
     const newRow = el('div', 'lib-new')
-    const newBtn = el('button', 'lib-mini', '＋ new')
+    const newBtn = el('button', 'lib-mini', 'new')
     newBtn.type = 'button'
     newBtn.addEventListener('click', () => {
       void (async () => {
@@ -278,20 +294,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       a.download = filename
       a.click()
       URL.revokeObjectURL(url)
-    }
-    const flashBtn = (btn: HTMLButtonElement, idle: string, msg: string): void => {
-      btn.textContent = msg
-      setTimeout(() => (btn.textContent = idle), 1800)
-    }
-
-    const exportBtn = el('button', 'lib-mini', 'export')
-    exportBtn.type = 'button'
-    exportBtn.title = 'Download project as JSON'
-    exportBtn.addEventListener('click', () => {
-      const blob = new Blob([JSON.stringify({ name: current.name, code: editor.getDoc() }, null, 2)], {
-        type: 'application/json',
-      })
-      downloadBlob(blob, `${safeName()}.rondo.json`)
+      exportBtn.textContent = 'exported'
+      setTimeout(() => (exportBtn.textContent = 'export'), 1800)
     })
 
     const wavBtn = el('button', 'lib-mini', 'wav')
@@ -369,6 +373,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
           await render()
         } catch (e) {
           console.warn('[library] import failed', e)
+          importBtn.textContent = 'import failed'
+          setTimeout(() => (importBtn.textContent = 'import'), 1800)
         }
       })()
     })
@@ -409,7 +415,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
           const payload = await encodeShare({ name: current.name, code: editor.getDoc() })
           const url = shareUrl(location.origin, location.pathname, payload)
           await navigator.clipboard.writeText(url)
-          flashBtn(shareBtn, 'share', 'link copied ✓')
+          flash('link copied')
         } catch (e) {
           console.warn('[library] share failed', e)
           flashBtn(shareBtn, 'share', 'copy failed')
@@ -424,7 +430,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     for (const p of projects) {
       const row = el('button', 'lib-row' + (p.id === current.id ? ' active' : ''))
       row.type = 'button'
-      row.append(el('span', 'lib-row-name', p.name))
+      const rowName = el('span', 'lib-row-name', p.name)
+      tooltip(rowName, p.name) // full name; the row ellipsizes
+      row.append(rowName)
       row.append(el('span', 'lib-row-time', ago(p.updatedAt, now)))
       row.addEventListener('click', () => {
         void (async () => {

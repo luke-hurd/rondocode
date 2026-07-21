@@ -38,6 +38,8 @@ import {
   makeClap,
 } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
+import { mountExport } from './export'
+import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { synthTheme } from './theme'
 import { EventFlasher, FLASH_MS, flashExtension } from './flash'
@@ -215,11 +217,11 @@ export function mountEditor(
   const topbar = el('header', 'topbar')
   const logo = el('span', 'logo', 'rondocode')
   // sample loader: bring audio files into the engine as sample(gate, 'name').
-  // The "＋" is always shown; " sample" is a collapsible label (hidden on
-  // mobile via CSS, so the button becomes icon-only to keep the header 1 row).
+  // Icon-only in the header (the label is hidden via CSS like the other
+  // secondary controls); the title names it, and it opens the samples popover.
   const sampleBtn = el('button', 'btn sample-btn')
   sampleBtn.type = 'button'
-  sampleBtn.title = 'load audio file(s) as samples, then play with sample(gate, "name")'
+  tooltip(sampleBtn, 'load audio file(s) as samples, then play with sample(gate, "name")')
   const sampleLabel = el('span', 'btn-label', 'sample')
   const renderSample = (): void => {
     sampleBtn.replaceChildren(iconEl('plus'), sampleLabel)
@@ -244,15 +246,18 @@ export function mountEditor(
   runBtn.type = 'button'
   const runLabel = el('span', 'btn-label', 'run')
   runBtn.replaceChildren(iconEl('play'), runLabel)
-  const stopBtn = el('button', 'btn stop-btn')
+  tooltip(runBtn, 'run (Cmd/Ctrl+Enter)') // also sets aria-label (icon-only on mobile)
+  const stopBtn = el('button', 'btn stop-btn hidden') // only shown while playing
   stopBtn.type = 'button'
-  stopBtn.title = 'stop'
   stopBtn.replaceChildren(iconEl('stop'))
+  tooltip(stopBtn, 'stop (Cmd/Ctrl+.)')
   const dirtyDot = el('span', 'dirty-dot')
-  dirtyDot.title = 'edited since last run'
-  const cpsEl = el('span', 'cps-readout')
+  tooltip(dirtyDot, 'edited since last run')
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
-  controls.append(sampleBtn, cpsEl, stopBtn, runBtn)
+  const exportBtn = el('button', 'btn export-btn')
+  exportBtn.type = 'button'
+  exportBtn.replaceChildren(iconEl('download'))
+  controls.append(sampleBtn, exportBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -599,11 +604,12 @@ export function mountEditor(
     audio,
     onDiagnostics: renderDiagnostics,
     onState: (s) => {
-      cpsEl.textContent = `${s.cps} cps`
+      stopBtn.classList.toggle('hidden', !s.playing) // no value when idle
       runBtn.classList.toggle('playing', s.playing)
       // While playing, Run hot-swaps the current code into the running program
       // rather than starting it — label it "update" (refresh icon) to say so.
       runLabel.textContent = s.playing ? 'update' : 'run'
+      tooltip(runBtn, s.playing ? 'update (Cmd/Ctrl+Enter)' : 'run (Cmd/Ctrl+Enter)')
       const wantIcon = s.playing ? 'refresh' : 'play'
       if (runBtn.dataset.icon !== wantIcon) {
         runBtn.querySelector('svg.ico')?.replaceWith(iconEl(wantIcon))
@@ -648,7 +654,6 @@ export function mountEditor(
       }
     },
   })
-  cpsEl.textContent = `${session.getState().cps} cps`
 
   // ---- controls ------------------------------------------------------
   runBtn.addEventListener('click', () => run())
@@ -678,6 +683,7 @@ export function mountEditor(
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
   const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
+  const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
   const dispose = (): void => {
     window.removeEventListener('pagehide', flushSave)
@@ -688,6 +694,7 @@ export function mountEditor(
     flasher.dispose()
     meters.dispose()
     disposeSamples()
+    disposeExport()
     engineListeners.clear()
     stateListeners.clear()
     docListeners.clear()

@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view'
 import type { AudioSession, SampleInfo } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
+import { tooltip } from '../ui/tooltip'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -100,10 +101,34 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     const order: string[] = []
     const groups = new Map<string, typeof samples>()
     for (const s of samples) {
-      const key = s.pack ?? (s.builtIn ? 'built-in' : 'yours')
-      if (!groups.has(key)) {
-        groups.set(key, [])
-        order.push(key)
+      const wrap = el('div', 'samples-rowwrap')
+      const play = el('button', 'samples-play')
+      play.type = 'button'
+      tooltip(play, `preview ${s.name}`)
+      play.append(iconEl('play'))
+      play.addEventListener('click', (e) => {
+        e.stopPropagation()
+        audio.previewSample(s.name)
+      })
+      wrap.append(play)
+      const row = el('button', 'samples-row')
+      row.type = 'button'
+      tooltip(row, `insert sample(gate, '${s.name}')`)
+      const name = el('span', 'samples-name', s.name)
+      if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
+      row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
+      row.addEventListener('click', () => insert(s.name))
+      wrap.append(row)
+      if (!s.builtIn) {
+        const rm = el('button', 'samples-rm')
+        rm.type = 'button'
+        tooltip(rm, `remove ${s.name}`)
+        rm.append(iconEl('x'))
+        rm.addEventListener('click', (e) => {
+          e.stopPropagation()
+          audio.removeSample(s.name)
+        })
+        wrap.append(rm)
       }
       groups.get(key)!.push(s)
     }
@@ -166,13 +191,19 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
   const onKey = (e: KeyboardEvent): void => {
     if (open && e.key === 'Escape') close()
   }
+  // keep the popover pinned under its anchor if the window resizes while open
+  const onResize = (): void => {
+    if (open) position()
+  }
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)
+  window.addEventListener('resize', onResize)
 
   return () => {
     unsub()
     document.removeEventListener('click', onDocClick)
     document.removeEventListener('keydown', onKey)
+    window.removeEventListener('resize', onResize)
     pop.remove()
   }
 }
