@@ -38,6 +38,10 @@ export class AudioSession {
    *  is just so the UI can list what is loadable by name. */
   private readonly _samples: SampleInfo[] = []
   private readonly sampleListeners = new Set<() => void>()
+  /** main-thread copy of each sample's PCM, kept so the UI can preview it
+   *  (the worklet's copy is transferred and not readable from here). */
+  private readonly _pcm = new Map<string, { data: Float32Array; sampleRate: number }>()
+  private _preview: AudioBufferSourceNode | null = null
 
   private constructor(
     private readonly context: AudioContext,
@@ -110,10 +114,12 @@ export class AudioSession {
       for (let i = 0; i < n; i++) mono[i]! += ch[i]!
     }
     if (chans > 1) for (let i = 0; i < n; i++) mono[i]! /= chans
+    const keep = mono.slice() // main-thread copy for preview (mono is transferred below)
     this.node.port.postMessage(
       { kind: 'loadSample', name, data: mono, sampleRate: buf.sampleRate } satisfies EngineMessage,
       [mono.buffer],
     )
+    this._pcm.set(name, { data: keep, sampleRate: buf.sampleRate })
     this.recordSample(name, n, buf.sampleRate, false)
     return n
   }
@@ -122,11 +128,45 @@ export class AudioSession {
    *  builtIn:true for the demo samples so the UI can label them. */
   loadSamplePcm(name: string, data: Float32Array, sampleRate: number, builtIn = false): void {
     const frames = data.length // read before postMessage transfers the buffer
+    const keep = data.slice() // main-thread copy for preview (data is transferred below)
     this.node.port.postMessage(
       { kind: 'loadSample', name, data, sampleRate } satisfies EngineMessage,
       [data.buffer],
     )
+    this._pcm.set(name, { data: keep, sampleRate })
     this.recordSample(name, frames, sampleRate, builtIn)
+  }
+
+  /** Preview a loaded sample through the AudioContext (independent of the
+   *  engine graph). Interrupts any current preview. No-op for unknown names. */
+  previewSample(name: string): void {
+    const pcm = this._pcm.get(name)
+    if (!pcm) return
+    this.stopPreview()
+    const buf = this.context.createBuffer(1, pcm.data.length, pcm.sampleRate)
+    buf.getChannelData(0).set(pcm.data)
+    const src = this.context.createBufferSource()
+    src.buffer = buf
+    const gain = this.context.createGain()
+    gain.gain.value = 0.9
+    src.connect(gain).connect(this.context.destination)
+    src.onended = () => {
+      if (this._preview === src) this._preview = null
+    }
+    void this.context.resume()
+    src.start()
+    this._preview = src
+  }
+
+  /** Stop the current preview, if any. */
+  stopPreview(): void {
+    if (!this._preview) return
+    try {
+      this._preview.stop()
+    } catch {
+      /* already stopped */
+    }
+    this._preview = null
   }
 
   /** The samples loaded so far (a copy), built-ins first, then user files. */
@@ -146,6 +186,7 @@ export class AudioSession {
     if (i === -1) return
     this.node.port.postMessage({ kind: 'clearSample', name } satisfies EngineMessage)
     this._samples.splice(i, 1)
+    this._pcm.delete(name)
     this.notifySamples()
   }
 

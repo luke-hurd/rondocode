@@ -65,6 +65,15 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     }
     for (const s of samples) {
       const wrap = el('div', 'samples-rowwrap')
+      const play = el('button', 'samples-play')
+      play.type = 'button'
+      play.title = `preview ${s.name}`
+      play.append(iconEl('play'))
+      play.addEventListener('click', (e) => {
+        e.stopPropagation()
+        audio.previewSample(s.name)
+      })
+      wrap.append(play)
       const row = el('button', 'samples-row')
       row.type = 'button'
       row.title = `insert sample(gate, '${s.name}')`
@@ -101,6 +110,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     open = true
   }
   const close = (): void => {
+    audio.stopPreview()
     pop.classList.add('hidden')
     open = false
   }

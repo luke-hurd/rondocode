@@ -172,6 +172,7 @@ body {
   color: var(--c-dim);
   font-variant-numeric: tabular-nums;
 }
+.samples-play,
 .samples-rm {
   flex: none;
   display: inline-flex;
@@ -199,6 +200,7 @@ body {
   cursor: pointer;
 }
 .samples-load svg,
+.samples-play svg,
 .samples-rm svg {
   width: 14px;
   height: 14px;
@@ -207,6 +209,9 @@ body {
   .samples-row:hover {
     background: var(--c-surface);
     border-color: var(--c-border);
+  }
+  .samples-play:hover {
+    color: var(--c-accent);
   }
   .samples-rm:hover {
     color: var(--c-error);
