@@ -96,6 +96,19 @@ describe('SampleKernel', () => {
     k.process(n, { gate, begin, end }, out, { sampleRate: 48000 })
     expect([...out]).toEqual([2, 3, 4, 5, 0, 0])
   })
+
+  it('stereo bank entry fills L/R and mid out', () => {
+    const bank = new SampleBank()
+    const L = Float32Array.from([1, 1, 1, 1])
+    const R = Float32Array.from([-1, -1, -1, -1])
+    bank.set('st', L, 48000, R)
+    const k = new SampleKernel('st', false, bank)
+    const out = run(k, 4, 48000)
+    expect(out).toEqual([0, 0, 0, 0]) // mid of 1 and -1
+    expect(k.hadStereo).toBe(true)
+    expect([...k.stereoL.slice(0, 4)]).toEqual([1, 1, 1, 1])
+    expect([...k.stereoR.slice(0, 4)]).toEqual([-1, -1, -1, -1])
+  })
 })
 
 describe('sample() through synth() + renderOffline', () => {

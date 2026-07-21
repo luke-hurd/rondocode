@@ -144,6 +144,15 @@ interface Channel {
    *  multiplier is 1 - scAmount·(1 - duckLevel). The source channel is never
    *  ducked regardless of this. */
   scAmount: number
+  /** Shared FX sends: fxName → amount [0, 1]. Tap is after local post, before strip. */
+  sends: Map<string, number>
+}
+
+interface FxBus {
+  name: string
+  post: PostChain
+  busL: Float32Array
+  busR: Float32Array
 }
 
 const isObj = (m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null
@@ -212,6 +221,9 @@ export class RealtimeEngine {
   /** Shared sample store; also exposed on ctx.samples so compiled
    *  SampleKernels resolve names against it (and see later loads). */
   private readonly samples: SampleBank
+
+  /** Named shared FX return buses (defineFx / setSend). */
+  private readonly fxBuses = new Map<string, FxBus>()
 
   constructor(ctx: DspContext, opts?: { maxSynths?: number }) {
     // Adopt any bank the host supplied on the ctx, else create one and publish
@@ -380,11 +392,24 @@ export class RealtimeEngine {
         }
         this.duckLevel = lvl
       }
+      // Clear shared FX send buses for this segment, then accumulate sends
+      // while mixing dry channels, then return wet into the master.
+      for (const fx of this.fxBuses.values()) {
+        fx.busL.fill(0, 0, n)
+        fx.busR.fill(0, 0, n)
+      }
       for (let c = 0; c < list.length; c++) {
         const ch = list[c]!
         // A channel with scAmount 0 opts out entirely (treat as no duck).
         const ducked = duckActive && ch.name !== this.scSource && ch.scAmount > 0 ? this.duck : null
         this.mixChannel(ch, outL, outR, cursor, n, ducked, ch.scAmount)
+      }
+      for (const fx of this.fxBuses.values()) {
+        fx.post.processStereo(fx.busL, fx.busR, n)
+        for (let i = 0; i < n; i++) {
+          outL[cursor + i] = outL[cursor + i]! + fx.busL[i]!
+          outR[cursor + i] = outR[cursor + i]! + fx.busR[i]!
+        }
       }
       cursor = end
     }
@@ -469,6 +494,18 @@ export class RealtimeEngine {
     // Per-synth FX post-chain: process the SUMMED voices once (shared reverb
     // tail etc.), in place, BEFORE the channel strip + sidechain duck.
     if (ch.post !== undefined) ch.post.processStereo(bufL, bufR, n)
+    // Shared FX sends (after local post, before strip): tap dry into named buses.
+    if (ch.sends.size > 0) {
+      for (const [fxName, amount] of ch.sends) {
+        if (amount <= 0) continue
+        const fx = this.fxBuses.get(fxName)
+        if (fx === undefined) continue
+        for (let i = 0; i < n; i++) {
+          fx.busL[i] = fx.busL[i]! + bufL[i]! * amount
+          fx.busR[i] = fx.busR[i]! + bufR[i]! * amount
+        }
+      }
+    }
     // Effective duck multiplier for this channel: 1 - amount·(1 - duckLevel).
     // amount 1 → the raw duck envelope; amount 0 → 1 (never entered here,
     // duck is null then). Shared with the offline mirror in render-runner.
@@ -567,6 +604,12 @@ export class RealtimeEngine {
         return this.msgSetMasterComp(m)
       case 'clearMasterComp':
         return this.msgClearMasterComp()
+      case 'defineFx':
+        return this.msgDefineFx(m)
+      case 'removeFx':
+        return this.msgRemoveFx(m)
+      case 'setSend':
+        return this.msgSetSend(m)
       default:
         this.error(`unknown message kind '${m['kind']}'`, 'message')
     }
@@ -650,6 +693,8 @@ export class RealtimeEngine {
       sumSq: 0,
       // Preserve the sidechain response across a redefine (like the strip).
       scAmount: existing?.scAmount ?? 1,
+      // Preserve shared FX sends across redefine (like the strip).
+      sends: existing?.sends ?? new Map(),
     })
     this.rebuildList()
   }
@@ -865,7 +910,11 @@ export class RealtimeEngine {
     if (!fin(sr) || sr <= 0) {
       return this.error(`'sampleRate' must be a positive number`, `loadSample '${name}'`)
     }
-    this.samples.set(name, data, sr)
+    const dataR = m['dataR']
+    if (dataR !== undefined && !(dataR instanceof Float32Array)) {
+      return this.error(`'dataR' must be a Float32Array when provided`, `loadSample '${name}'`)
+    }
+    this.samples.set(name, data, sr, dataR instanceof Float32Array ? dataR : undefined)
   }
 
   private msgClearSample(m: Record<string, unknown>): void {
@@ -910,6 +959,54 @@ export class RealtimeEngine {
   private msgClearMasterComp(): void {
     this.masterComp = undefined
     this.masterCompGr = 0
+  }
+
+  private msgDefineFx(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'defineFx')
+    }
+    if (!isObj(m['graph'])) {
+      return this.error(`'graph' must be a GraphSpec object`, `defineFx '${name}'`)
+    }
+    try {
+      const post = new PostChain(m['graph'] as unknown as GraphSpec, this.ctx)
+      this.fxBuses.set(name, {
+        name,
+        post,
+        busL: new Float32Array(BLOCK),
+        busR: new Float32Array(BLOCK),
+      })
+    } catch (e) {
+      return this.error(
+        `defineFx '${name}' rejected: ${e instanceof Error ? e.message : String(e)}`,
+        `defineFx '${name}'`,
+      )
+    }
+  }
+
+  private msgRemoveFx(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'removeFx')
+    }
+    this.fxBuses.delete(name)
+  }
+
+  private msgSetSend(m: Record<string, unknown>): void {
+    const ch = this.lookup(m, 'setSend')
+    if (!ch) return
+    const fx = m['fx']
+    if (typeof fx !== 'string' || fx.length === 0) {
+      return this.error(`'fx' must be a non-empty string`, 'setSend')
+    }
+    const amount = m['amount']
+    if (!fin(amount)) {
+      return this.error(`'amount' must be a finite number`, 'setSend')
+    }
+    const a = clamp(amount as number, 0, 1)
+    if (a <= 0) ch.sends.delete(fx)
+    else ch.sends.set(fx, a)
   }
 
   /** Resolve m['synth'] to a channel; emits an error and returns null when

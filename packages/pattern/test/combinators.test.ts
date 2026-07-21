@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { F, Pattern, saw } from '../src/index'
+import { binary, F, Pattern, saw } from '../src/index'
 import type { Hap } from '../src/index'
 import { q, qw, sortHaps, span } from './helpers'
 
@@ -436,6 +436,50 @@ describe('swingBy / swing', () => {
   })
 })
 
+describe('density / hurry / mask / inside / outside / zoom / binary', () => {
+  it('density and hurry alias fast', () => {
+    expect(q(ab.density(2), 0, 1)).toEqual(q(ab.fast(2), 0, 1))
+    expect(q(ab.hurry(2), 0, 1)).toEqual(q(ab.fast(2), 0, 1))
+  })
+
+  it('mask keeps this structure; silences false steps', () => {
+    const bits = fastcat(pure(true), pure(false), pure(true), pure(true))
+    const p = abcd.mask(bits)
+    expect(q(p, 0, 1)).toEqual([
+      [0, 0.25, 'a'],
+      [0.5, 0.75, 'c'],
+      [0.75, 1, 'd'],
+    ])
+  })
+
+  it('inside(2, rev) equals rev in denser time, restored', () => {
+    const p = ab.inside(2, (x) => x.rev())
+    expect(q(p, 0, 1)).toEqual(q(ab.fast(2).rev().slow(2), 0, 1))
+  })
+
+  it('outside(2, early) applies early in slowed time', () => {
+    const p = ab.outside(2, (x) => x.early(0.25))
+    expect(q(p, 0, 1)).toEqual(q(ab.slow(2).early(0.25).fast(2), 0, 1))
+  })
+
+  it('zoom(0, 0.5) stretches the first half-cycle to fill the cycle', () => {
+    const p = abcd.zoom(0, 0.5)
+    // first half of abcd is a,b — stretched across the full cycle
+    expect(q(p, 0, 1)).toEqual([
+      [0, 0.5, 'a'],
+      [0.5, 1, 'b'],
+    ])
+  })
+
+  it('binary(5) is 101', () => {
+    expect(q(binary(5), 0, 1)).toEqual([
+      [0, 1 / 3, true],
+      [1 / 3, 2 / 3, false],
+      [2 / 3, 1, true],
+    ])
+  })
+})
+
 describe('prototype augmentation wiring', () => {
   it('methods are available on patterns built from the package index', () => {
     // This file imports ONLY from ../src/index — every combinator used above
@@ -443,5 +487,7 @@ describe('prototype augmentation wiring', () => {
     expect(typeof Pattern.pure('x').every).toBe('function')
     expect(typeof Pattern.pure(1).add).toBe('function')
     expect(typeof saw.segment).toBe('function')
+    expect(typeof Pattern.pure('x').mask).toBe('function')
+    expect(typeof binary).toBe('function')
   })
 })

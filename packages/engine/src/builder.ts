@@ -88,8 +88,9 @@ export interface SynthCtx {
    *  note equals that MIDI root and tracks the note otherwise; `{ speed }` sets
    *  an explicit rate multiplier (overrides root). No root/speed → natural rate
    *  (drums). Region: auto-wires `begin`/`end` params (0..1) for `.striate()` /
-   *  `.ctrl('begin'|'end', …)`; override with `{ begin, end }` Sigs. Output is
-   *  mono — shape amplitude with an ADSR like an oscillator. Unknown name → silence. */
+   *  `.ctrl('begin'|'end', …)`; override with `{ begin, end }` Sigs. Stereo
+   *  samples preserve L/R when the path after sample is gain-only (mul/adsr);
+   *  filters collapse to mid. Unknown name → silence. */
   sample(
     gate: SigIn,
     name: string,
@@ -626,6 +627,15 @@ const returnsOwnSig = (result: unknown, b: Builder): boolean =>
  *  compiled here so errors surface at definition time; a synth with no postFn
  *  has `post` undefined and one with no opts has `voiceOpts` undefined and
  *  behaves exactly as before. */
+/** Build a shared FX return graph (same shape as a synth post chain).
+ *  Pass the result to the eval-time `defineFx(name, graph)` staging API, or
+ *  use `defineFx(name, fn)` which builds this for you. */
+export function fx(fn: (ctx: PostCtx) => Sig): GraphSpec {
+  return buildGraph(makePostCtx, returnsOwnSig, fn, (g) => {
+    compilePost(g, { sampleRate: 48000 })
+  })
+}
+
 export function synth(voiceFn: (ctx: SynthCtx) => Sig, opts: VoiceOptsInput): SynthDef
 export function synth(
   voiceFn: (ctx: SynthCtx) => Sig,

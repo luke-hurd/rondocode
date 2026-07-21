@@ -3,7 +3,8 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import type { SynthDef } from '@rondocode/engine'
+import { fx as buildFx } from '@rondocode/engine'
+import type { GraphSpec, SynthDef } from '@rondocode/engine'
 
 /* ------------------------------------------------------------------------- *
  * evalCode: source text in, STAGED registrations out. This is the pure core
@@ -75,6 +76,10 @@ export interface EvalResult {
    *  compressor config. All fields in the compressor's native units (dB /
    *  ratio / ms); validated + clamped engine-side. */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Staged shared FX return buses (defineFx) — name → post-style GraphSpec. */
+  fxBuses?: Map<string, GraphSpec>
+  /** Staged sends: synth → { fxName → amount }. */
+  sends?: Map<string, Record<string, number>>
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -86,7 +91,16 @@ export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual'])
+const STAGING_NAMES = new Set([
+  'p',
+  'defineSynth',
+  'setCps',
+  'sidechain',
+  'masterCompress',
+  'visual',
+  'defineFx',
+  'send',
+])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -242,6 +256,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
   let visualSrc: string | undefined
+  const fxBuses = new Map<string, GraphSpec>()
+  const sends = new Map<string, Record<string, number>>()
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
   // a timer/promise would otherwise silently vanish (its eval's maps are
@@ -369,6 +385,43 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     visualSrc = wgsl
   }
 
+  /** Define a named shared FX return bus. `def` is either a post-style builder
+   *  function `(ctx) => sig` or a GraphSpec from `fx(fn)`. */
+  const defineFx = (name: unknown, def: unknown): void => {
+    assertOpen('defineFx')
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new TypeError(`defineFx(): name must be a non-empty string, got ${JSON.stringify(name)}`)
+    }
+    if (typeof def === 'function') {
+      fxBuses.set(name, buildFx(def as Parameters<typeof buildFx>[0]))
+      return
+    }
+    if (typeof def === 'object' && def !== null && 'nodes' in def && 'out' in def) {
+      fxBuses.set(name, def as GraphSpec)
+      return
+    }
+    throw new TypeError(`defineFx('${name}'): expected fx(fn) graph or (ctx) => Sig builder`)
+  }
+
+  /** Send `amount` (0..1) of `synth`'s dry (after local post) into FX `fxName`. */
+  const send = (synthName: unknown, fxName: unknown, amount: unknown): void => {
+    assertOpen('send')
+    if (typeof synthName !== 'string' || synthName.length === 0) {
+      throw new TypeError(`send(): synth must be a non-empty string`)
+    }
+    if (typeof fxName !== 'string' || fxName.length === 0) {
+      throw new TypeError(`send(): fx must be a non-empty string`)
+    }
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) {
+      throw new TypeError(`send('${synthName}', '${fxName}'): amount must be a finite number`)
+    }
+    const a = Math.min(1, Math.max(0, amount))
+    const cur = sends.get(synthName) ?? {}
+    if (a <= 0) delete cur[fxName]
+    else cur[fxName] = a
+    sends.set(synthName, cur)
+  }
+
   const names: string[] = []
   const values: unknown[] = []
   for (const [key, value] of Object.entries(scope)) {
@@ -379,8 +432,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual')
-  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual)
+  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'defineFx', 'send')
+  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, defineFx, send)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -403,5 +456,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
   if (visualSrc !== undefined) result.visual = visualSrc
+  if (fxBuses.size > 0) result.fxBuses = fxBuses
+  if (sends.size > 0) result.sends = sends
   return result
 }

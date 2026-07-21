@@ -173,6 +173,27 @@ declare module './pattern' {
     swingBy(amount: Fraction | number, n: number): Pattern<T>
     /** swingBy(1/3, n) — classic triplet swing. */
     swing(n: number): Pattern<T>
+    /** Alias of {@link Pattern.fast} (Tidal/Strudel density). */
+    density(k: Fraction | number): Pattern<T>
+    /**
+     * Speed the pattern up by k (alias of fast for now). When ControlMap
+     * `speed` lands for samples, hurry can also scale playback rate.
+     */
+    hurry(k: Fraction | number): Pattern<T>
+    /**
+     * Keep structure from this; silence where `boolPat` is false (inverse of
+     * {@link Pattern.struct}, which takes structure from the bool).
+     */
+    mask(boolPat: Pattern<boolean>): Pattern<T>
+    /** Apply f in sped-up time: `f(this.fast(n)).slow(n)`. */
+    inside(n: Fraction | number, f: (p: Pattern<T>) => Pattern<T>): Pattern<T>
+    /** Apply f in slowed-down time: `f(this.slow(n)).fast(n)`. */
+    outside(n: Fraction | number, f: (p: Pattern<T>) => Pattern<T>): Pattern<T>
+    /**
+     * Play cycle fraction [s, e) stretched to fill the whole cycle (inverse
+     * of compressSpan). Requires 0 ≤ s < e ≤ 1.
+     */
+    zoom(s: Fraction | number, e: Fraction | number): Pattern<T>
   }
 }
 
@@ -559,4 +580,82 @@ Pattern.prototype.swingBy = function <T>(
 
 Pattern.prototype.swing = function <T>(this: Pattern<T>, n: number): Pattern<T> {
   return this.swingBy(F(1, 3), n)
+}
+
+Pattern.prototype.density = function <T>(this: Pattern<T>, k: Fraction | number): Pattern<T> {
+  return this.fast(k)
+}
+
+Pattern.prototype.hurry = function <T>(this: Pattern<T>, k: Fraction | number): Pattern<T> {
+  return this.fast(k)
+}
+
+Pattern.prototype.mask = function <T>(
+  this: Pattern<T>,
+  boolPat: Pattern<boolean>,
+): Pattern<T> {
+  // Structure from this; values gated by the bool (appLeft).
+  return this.appLeft(boolPat, (v, b) => (b ? { v } : undefined))
+    .filterValues((x) => x !== undefined)
+    .withValue((x) => (x as { v: T }).v)
+}
+
+Pattern.prototype.inside = function <T>(
+  this: Pattern<T>,
+  n: Fraction | number,
+  f: (p: Pattern<T>) => Pattern<T>,
+): Pattern<T> {
+  const k = toF(n)
+  if (!k.gt(0)) return Pattern.silence
+  return f(this.fast(k)).slow(k)
+}
+
+Pattern.prototype.outside = function <T>(
+  this: Pattern<T>,
+  n: Fraction | number,
+  f: (p: Pattern<T>) => Pattern<T>,
+): Pattern<T> {
+  const k = toF(n)
+  if (!k.gt(0)) return Pattern.silence
+  return f(this.slow(k)).fast(k)
+}
+
+Pattern.prototype.zoom = function <T>(
+  this: Pattern<T>,
+  s: Fraction | number,
+  e: Fraction | number,
+): Pattern<T> {
+  const sf = toF(s)
+  const ef = toF(e)
+  if (sf.lt(0) || ef.gt(1) || !sf.lt(ef)) return Pattern.silence
+  const width = ef.sub(sf)
+  return new Pattern<T>((span) => {
+    const out: Hap<T>[] = []
+    for (const cs of span.cycleSpans()) {
+      const cycle = cs.begin.sam()
+      const toInner = (t: Fraction) => t.sub(cycle).mul(width).add(sf).add(cycle)
+      const toOuter = (t: Fraction) => t.sub(cycle).sub(sf).div(width).add(cycle)
+      for (const h of this.query(cs.withTime(toInner))) {
+        out.push(
+          hap(
+            h.whole?.withTime(toOuter),
+            h.part.withTime(toOuter),
+            h.value,
+          ),
+        )
+      }
+    }
+    return out
+  })
+}
+
+/**
+ * Boolean rhythm from the binary digits of `n` (MSB → first step).
+ * `binary(5)` → `101` → true, false, true over one cycle.
+ */
+export function binary(n: number): Pattern<boolean> {
+  if (!Number.isFinite(n)) throw new TypeError(`binary requires a finite number, got ${n}`)
+  const bits = Math.floor(Math.abs(n)).toString(2)
+  if (bits === '0') return Pattern.pure(false)
+  return Pattern.fastcat(...[...bits].map((c) => Pattern.pure(c === '1')))
 }

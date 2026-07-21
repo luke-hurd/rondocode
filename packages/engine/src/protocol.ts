@@ -67,12 +67,12 @@ export type EngineMessage = (
   | { kind: 'setSidechain'; source: string; depth?: number; releaseMs?: number }
   /** Remove the sidechain duck: the level returns to 1 (no ducking). */
   | { kind: 'clearSidechain' }
-  /** Load (or REPLACE) a mono audio sample under `name`, available to any
-   *  synth's sample('name') node. `data` is Float32 PCM (stereo is downmixed
-   *  to mono by the host before sending); `sampleRate` is the buffer's own
-   *  rate (the kernel resamples to the engine rate). Loading is a control-plane
-   *  op; already-compiled synths pick the sample up on their next block. */
-  | { kind: 'loadSample'; name: string; data: Float32Array; sampleRate: number }
+  /** Load (or REPLACE) an audio sample under `name`, available to any synth's
+   *  sample('name') node. `data` is Float32 PCM (left / mono); optional `dataR`
+   *  is the right channel (same length) to preserve stereo. `sampleRate` is the
+   *  buffer's own rate (the kernel resamples to the engine rate). Loading is a
+   *  control-plane op; already-compiled synths pick the sample up next block. */
+  | { kind: 'loadSample'; name: string; data: Float32Array; sampleRate: number; dataR?: Float32Array }
   /** Drop a loaded sample; synths referencing `name` fall back to silence. */
   | { kind: 'clearSample'; name: string }
   /** MASTER GLUE COMPRESSOR: a stereo-linked feed-forward compressor on the
@@ -82,6 +82,15 @@ export type EngineMessage = (
   | { kind: 'setMasterComp'; threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }
   /** Remove the master glue compressor (no reduction). */
   | { kind: 'clearMasterComp' }
+  /** Define (or replace) a named shared FX return bus. `graph` is a post-style
+   *  GraphSpec (`businput` → effects → out). Channels send into it via setSend;
+   *  the wet output is mixed into the master after all dry channels. */
+  | { kind: 'defineFx'; name: string; graph: GraphSpec }
+  /** Drop a shared FX bus. Active sends to it become no-ops. */
+  | { kind: 'removeFx'; name: string }
+  /** Set how much of `synth`'s post-fader dry (after local post, before strip)
+   *  is sent into FX bus `fx`. amount 0 removes the send. Clamped to [0, 1]. */
+  | { kind: 'setSend'; synth: string; fx: string; amount: number }
 ) & {
   /** Optional correlation id, echoed back on any error event this message
    *  provokes so hosts (MCP bridge, UI) can match failures to requests.

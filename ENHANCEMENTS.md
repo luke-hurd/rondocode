@@ -24,6 +24,9 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 14. ~~**Shared transport**~~ — **done** (cps + play/stop, cycle-aligned start).
 15. ~~**Accounts + cloud library**~~ — **done** (Supabase GitHub OAuth + schema; env-gated).
 16. ~~**Stems / sample CDN / spectator**~~ — **done** (mute masks, URL packs, `?spectate=1`).
+17. ~~**More pattern combinators**~~ — **done** (`density`/`hurry`/`mask`/`inside`/`outside`/`zoom`/`binary`).
+18. ~~**Stereo sample preserve**~~ — **done** (L/R through load + SampleKernel; gain-path recovery).
+19. ~~**Shared FX send/return bus**~~ — **done** (`defineFx` / `send` / `fx()`).
 
 ---
 
@@ -43,7 +46,7 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 
 | Idea | Why | Touch points |
 | --- | --- | --- |
-| More named combinators | e.g. hurry, mask, density, inside/outside, zoom, binary | `combinators.ts`, `dsl-docs.ts`, `docs.test.ts` |
+| ~~More named combinators~~ | **done** — hurry, mask, density, inside/outside, zoom, binary | `combinators.ts`, `dsl-docs.ts` |
 | External MIDI clock / sync (in) | Scheduler is audio-clock only; out clock is optional | `packages/pattern/src/scheduler.ts`, app MIDI layer |
 
 Keep existing parity decisions (Strudel midpoint sampling, time-locked randomness, swing convention) when extending.
@@ -56,8 +59,8 @@ Keep existing parity decisions (Strudel midpoint sampling, time-locked randomnes
 | --- | --- | --- |
 | Live-modulatable reverb room/damp | Config-only today | `packages/engine/src/dsp/reverb.ts` |
 | Better sample interpolation | Linear only | `packages/engine/src/dsp/sample.ts` |
-| Stereo sample preserve | Host downmixes to mono in protocol | `protocol.ts`, sample path |
-| Shared FX send / return bus | Per-synth post exists; no master send rack | `post.ts`, `realtime.ts`, eval scope APIs |
+| ~~Stereo sample preserve~~ | **done** — optional `dataR` on loadSample | `AudioSession`, `SampleKernel`, `voice.ts` |
+| ~~Shared FX send / return bus~~ | **done** — `defineFx` / `send` / `fx()` | `realtime.ts`, `evalCode.ts`, `builder.ts` |
 | Voice reclaim hysteresis | Documented v1 silence-detection limits | `packages/engine/src/voice.ts` |
 | Protocol acks | Successful messages silent — harder host sync | `protocol.ts` |
 | Momentary / short-term LUFS | Integrated only today | `analysis-lufs.ts` |

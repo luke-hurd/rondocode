@@ -113,6 +113,8 @@ export interface CompiledGraph {
   panIn: Float32Array
   /** Pan position buffer, or null for equal-power center. */
   panPos: Float32Array | null
+  /** First SampleKernel in the graph (if any) — used to recover stereo imaging. */
+  sampleKernel: SampleKernel | null
 }
 
 /** Input port table per node type. `def` present = optional with that
@@ -507,6 +509,14 @@ export function compileGraph(spec: GraphSpec, ctx: DspContext): CompiledGraph {
     panPos = null
   }
 
+  let sampleKernel: SampleKernel | null = null
+  for (const st of c.steps) {
+    if (st.kernel instanceof SampleKernel) {
+      sampleKernel = st.kernel
+      break
+    }
+  }
+
   return {
     steps: c.steps,
     noteFreq: c.noteFreq,
@@ -516,6 +526,7 @@ export function compileGraph(spec: GraphSpec, ctx: DspContext): CompiledGraph {
     params: c.params,
     panIn,
     panPos,
+    sampleKernel,
   }
 }
 
