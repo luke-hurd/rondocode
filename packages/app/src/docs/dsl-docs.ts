@@ -212,22 +212,10 @@ const GLOBALS: DocEntry[] = [
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
   ),
   g(
-    'fx',
-    'fx(build: (ctx: PostCtx) => Sig)',
-    'Build a shared FX return graph (same nodes as a synth post chain: reverb, delay, compress, …). Pass to defineFx, or use defineFx(name, build) directly.',
-    "fx(({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.85 }), 1))",
-  ),
-  g(
-    'defineFx',
-    "defineFx(name: string, build: ((ctx) => Sig) | GraphSpec)",
-    'Register a named shared FX return bus. Many synths can send into it; the wet mix lands on the master after all dry channels.',
-    "defineFx('room', ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.9, damp: 0.4 }), 1))",
-  ),
-  g(
-    'send',
-    'send(synth: string, fx: string, amount: number)',
-    'Send amount (0..1) of a synth’s dry (after its local post, before the channel fader) into a shared FX bus from defineFx.',
-    "send('pad', 'room', 0.35)",
+    'bus',
+    'bus(name: string, fx: (ctx) => Sig, sends?: Record<string, number>, opts?: { gain?: number })',
+    'A shared send bus: one FX chain (written like a synth post-chain) that many synths feed, so a single reverb or delay is shared instead of duplicated per voice. The sends map routes synths in by amount 0..1, tapped pre-fader so a reverb send does not pump with the sidechain. gain (def 1) scales the return; the bus sums into the master before the glue compressor.',
+    "bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { pad: 0.4, arp: 0.2 })",
   ),
 ]
 
@@ -443,6 +431,18 @@ const PATTERN_METHODS: DocEntry[] = [
     "scale(name: string)",
     "Turn scale degrees (from n()) into actual notes in a scale like 'a minor', 'f# mixolydian', 'c blues', or 'd harmonicMinor'; degrees past the top wrap up an octave.",
     "n('0 0 3 5').scale('a minor')",
+  ),
+  pm(
+    'echo',
+    'echo(count: number, time: number, feedback?: number)',
+    'Tempo-synced delay: layer count copies, each time cycles later and feedback (default 0.5) quieter — a musical echo, since time is in cycles.',
+    ".sound('pluck').echo(3, 0.125, 0.5)",
+  ),
+  pm(
+    'ping',
+    'ping(count: number, time: number, feedback?: number)',
+    'Like echo, but the taps alternate right/left for a ping-pong stereo delay.',
+    ".sound('pluck').ping(4, 0.1875, 0.6)",
   ),
   pm('jux', 'jux(f: (p) => p)', 'Stereo split: the original hard left, f(copy) hard right.', '.jux(x => x.rev())'),
   pm('juxBy', 'juxBy(amount: number, f: (p) => p)', 'jux with adjustable width: 0 keeps both centered, 1 is a full split.', '.juxBy(0.5, x => x.rev())'),

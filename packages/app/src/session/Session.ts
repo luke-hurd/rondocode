@@ -145,10 +145,11 @@ export class Session {
   private liveScAmounts = new Map<string, number>()
   /** JSON fingerprint of the live master-comp config (undefined = none). */
   private liveMasterComp: string | undefined
-  /** Live shared FX bus names (for removeFx when a defineFx disappears). */
-  private liveFx = new Set<string>()
-  /** Fingerprint of staged sends: JSON of synth→fx→amount. */
-  private liveSends: string | undefined
+  /** Live send buses: name → JSON.stringify(BusDef), the diffing fingerprint. */
+  private readonly liveBuses = new Map<string, string>()
+  /** Live per-synth sends: `${synth} ${bus}` → amount, the diff base so an
+   *  unchanged send isn't resent and a dropped one resets to 0. */
+  private liveSends = new Map<string, number>()
   /** Slide notes whose release is deferred until the synth's next note lands
    *  (adaptive 303 slide): synth name -> the held slide note. */
   private readonly pendingSlide = new Map<string, number>()
@@ -319,45 +320,45 @@ export class Session {
       this.liveMasterComp = mcJson
     }
 
-    // Shared FX buses + sends.
-    const newFx = result.fxBuses ?? new Map()
-    for (const [name, graph] of newFx) {
-      this.audio.send({ kind: 'defineFx', name, graph })
+    // Shared send buses: defineBus on new/changed, removeBus when vanished —
+    // same apply-on-ok, diff-and-send discipline as synths. Buses are applied
+    // BEFORE sends so a send never references a not-yet-defined bus.
+    for (const [name, def] of result.buses) {
+      const json = JSON.stringify(def)
+      if (this.liveBuses.get(name) === json) continue
+      this.audio.send({ kind: 'defineBus', name, graph: def.graph, gain: def.gain })
+      this.liveBuses.set(name, json)
     }
-    for (const name of this.liveFx) {
-      if (!newFx.has(name)) this.audio.send({ kind: 'removeFx', name })
+    for (const name of [...this.liveBuses.keys()]) {
+      if (!result.buses.has(name)) {
+        this.audio.send({ kind: 'removeBus', name })
+        this.liveBuses.delete(name)
+      }
     }
-    this.liveFx = new Set(newFx.keys())
 
-    const sendsObj: Record<string, Record<string, number>> = {}
-    if (result.sends) {
-      for (const [synth, map] of result.sends) sendsObj[synth] = map
-    }
-    const sendsJson = JSON.stringify(sendsObj)
-    if (sendsJson !== this.liveSends) {
-      // Reset previous sends to 0, then apply new ones.
-      if (this.liveSends !== undefined) {
-        try {
-          const prev = JSON.parse(this.liveSends) as Record<string, Record<string, number>>
-          for (const [synth, map] of Object.entries(prev)) {
-            for (const fxName of Object.keys(map)) {
-              if (this.liveSynths.has(synth)) {
-                this.audio.send({ kind: 'setSend', synth, fx: fxName, amount: 0 })
-              }
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+    // Sends: setSend for new/changed routes, reset a dropped route to 0 — but
+    // only while both endpoints still exist (removeBus/removeSynth already drop
+    // the routing engine-side, and setSend to a gone endpoint would error).
+    const sendKey = (synth: string, bus: string): string => `${synth} ${bus}`
+    const newSends = new Map<string, number>()
+    for (const s of result.sends) newSends.set(sendKey(s.synth, s.bus), s.amount)
+    for (const s of result.sends) {
+      const key = sendKey(s.synth, s.bus)
+      if (this.liveSends.get(key) === s.amount) continue
+      if (this.liveSynths.has(s.synth) && this.liveBuses.has(s.bus)) {
+        this.audio.send({ kind: 'setSend', synth: s.synth, bus: s.bus, amount: s.amount })
       }
-      for (const [synth, map] of Object.entries(sendsObj)) {
-        if (!this.liveSynths.has(synth)) continue
-        for (const [fxName, amount] of Object.entries(map)) {
-          this.audio.send({ kind: 'setSend', synth, fx: fxName, amount })
-        }
-      }
-      this.liveSends = sendsJson
     }
+    for (const key of this.liveSends.keys()) {
+      if (newSends.has(key)) continue
+      const sep = key.indexOf(' ')
+      const synth = key.slice(0, sep)
+      const bus = key.slice(sep + 1)
+      if (this.liveSynths.has(synth) && this.liveBuses.has(bus)) {
+        this.audio.send({ kind: 'setSend', synth, bus, amount: 0 })
+      }
+    }
+    this.liveSends = newSends
 
     this.lastGoodSource = source
     this.lastError = undefined
@@ -509,8 +510,8 @@ export class Session {
     this.liveSidechain = undefined
     this.liveScAmounts.clear()
     this.liveMasterComp = undefined
-    this.liveFx.clear()
-    this.liveSends = undefined
+    this.liveBuses.clear()
+    this.liveSends = new Map()
     this.pendingSlide.clear()
     for (const name of this.scheduler.patterns()) this.scheduler.removePattern(name)
   }
