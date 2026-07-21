@@ -20,6 +20,10 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 10. ~~**In-app live record**~~ — **done** (library `rec` / `stop` → master WAV).
 11. ~~**Web MIDI in + out**~~ — **done** (in → first live synth; out mirrors pattern notes; optional clock).
 12. ~~**Sample packs**~~ — **done** (`core` + procedural `kit` packs in samples browser).
+13. ~~**Jam rooms (Yjs + PartyKit)**~~ — **done** (`?room=`, driver eval, presence, local audio).
+14. ~~**Shared transport**~~ — **done** (cps + play/stop, cycle-aligned start).
+15. ~~**Accounts + cloud library**~~ — **done** (Supabase GitHub OAuth + schema; env-gated).
+16. ~~**Stems / sample CDN / spectator**~~ — **done** (mute masks, URL packs, `?spectate=1`).
 
 ---
 
@@ -90,10 +94,10 @@ Worklet steady-state is already allocation-conscious — preserve that when chan
 
 | Idea | Notes | Touch points |
 | --- | --- | --- |
-| Collaboration / CRDT | Bridge is single-session supersede today | `bridge.ts`, `bridge-client.ts` |
+| ~~Collaboration / CRDT~~ | **done** — PartyKit jam plane; bridge stays MCP-only | `jam/`, `party/`, `docs/jam.md` |
 | Richer visualizers | WebGPU + analyser path already | `shaderviz/shaderviz.ts`, `viz/viz.ts` |
 | Preset / patch library | Beyond examples + synthlib shelf | `examples/`, `editor/synthlib.ts`, projects IDB |
-| Remote sample CDN packs | Builds on loadSample protocol | samples UI + protocol |
+| ~~Remote sample CDN packs~~ | **done** (room control map + fetch) | `jam/samples-cdn.ts` |
 | Plugin / custom DSP kernels | Graph is typed `NodeType` today — design needed | `graph.ts`, compile, worklet |
 | Standalone pattern/engine npm packages | Requires build + API freeze | package.json exports, docs |
 

@@ -37,6 +37,12 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **Web MIDI out** | Pattern-scheduled notes are forwarded to MIDI outputs (not MIDI-in echoes). Optional MIDI clock API on the out handle. |
 | **Sample packs** | Built-in procedural packs in the samples popover: **`core`** (`vox`, `pad`, `riser`) and **`kit`** (`kick`, `snare`, `hat`, `clap`), with preview + insert. |
 | **Agent → editor sync** | Successful MCP `eval_code` rewrites the CodeMirror buffer to match what’s playing; `get_code` also returns `editorDoc`. |
+| **Jam rooms** | `?room=` live collab via PartyKit + Yjs + `y-codemirror.next` — shared buffer, presence, driver-mode Run, local audio per peer. See [docs/jam.md](docs/jam.md). |
+| **Shared transport** | Driver play/stop + cps with best-effort cycle-aligned start across peers. |
+| **Spectator view** | `?spectate=1` — read-only projection of a jam room. |
+| **Stem mute masks** | Per-synth mute shared in the room control plane (local gain). |
+| **Sample CDN hooks** | Room can publish `{name,url}` packs; peers fetch into the Worklet. |
+| **GitHub auth + cloud library** | Optional Supabase Auth (GitHub OAuth) + cloud projects / room ownership (env-gated). |
 
 ### Pattern DSL
 
@@ -70,14 +76,32 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **ENHANCEMENTS.md** | Fork backlog / what’s done vs still open. |
 | **Docs / agent-guide** | DSL reference + MCP agent guide updated for editor sync, new combinators, and LUFS/mel analysis. |
 
-### Open PRs that land this work
+## Jam rooms (live collab)
 
-On this fork these are split for review:
+Flok / Estuary-style multiplayer: share a URL, edit one buffer together, each
+browser renders audio locally. Sync the **code and control plane**, not PCM.
 
-1. [App I/O](https://github.com/luke-hurd/rondocode/pull/1) — MIDI, WAV, record, packs, MIDI I/O, editor sync plumbing  
-2. [Pattern DSL](https://github.com/luke-hurd/rondocode/pull/2) — squeezeBind / chop / striate / mini / scales  
-3. [Engine DSP](https://github.com/luke-hurd/rondocode/pull/3) — LUFS, begin/end, note.midi, feedback *(stacked on #2)*  
-4. [Tooling + this README](https://github.com/luke-hurd/rondocode/pull/4) — Biome, CI, ENHANCEMENTS  
+```sh
+pnpm jam    # PartyKit on :1999
+pnpm dev    # app on :6060
+# open http://localhost:6060/?room=demo in two browsers
+```
+
+| Piece | Behavior |
+| --- | --- |
+| **Shared buffer** | Yjs CRDT over PartyKit (`y-codemirror.next`) — everyone types in the same program. |
+| **Driver** | One peer owns **Run** / play-stop; others edit. Claim **drive** in the jam bar to hand off. |
+| **Presence** | Nickname + color; see who’s in and who drives. |
+| **Transport** | Shared cps + play/stop with a short aligned start across peers. |
+| **Spectator** | `?spectate=1` — read-only projection view. |
+| **Stems / samples** | Optional per-synth mute masks; room can publish `{name,url}` sample packs. |
+| **Saving** | You’re co-writing a **shared score**. Library → **wav** / **rec** bounces that program on *your* machine (same as solo). Local IndexedDB copies and optional Supabase cloud projects are per-user. |
+| **Accounts** | Optional GitHub OAuth via Supabase (env-gated). Anonymous rooms work with no sign-in. |
+
+Solo / offline still works with zero network — rooms are opt-in. The MCP bridge
+supersede path is unchanged (agents attach to the driver’s tab, not PartyKit).
+
+Full notes: [docs/jam.md](docs/jam.md).
 
 ## Monorepo layout
 
@@ -96,10 +120,14 @@ pnpm workspace, TypeScript throughout. Packages import each other by name
 ```sh
 pnpm install
 pnpm dev        # vite dev server on http://localhost:6060
+pnpm jam        # PartyKit jam rooms on :1999 (optional)
 pnpm test       # the whole vitest suite
 pnpm test:watch # watch mode
 pnpm lint       # Biome (this fork)
 ```
+
+Optional env vars: see [`.env.example`](.env.example) (`VITE_PARTYKIT_HOST`,
+Supabase keys for cloud auth).
 
 Type-check with `pnpm --filter @rondocode/app exec tsc --noEmit` (or per package).
 **Do not run `tsc -b`** in this repo: it emits `.js` into `src/` and vite then

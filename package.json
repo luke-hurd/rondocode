@@ -21,6 +21,8 @@
   ],
   "scripts": {
     "dev": "pnpm --filter @rondocode/app dev",
+    "jam": "partykit dev --port 1999",
+    "jam:deploy": "partykit deploy",
     "bridge": "pnpm --filter @rondocode/server exec tsx src/main.ts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
@@ -28,9 +30,15 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.6",
+    "partykit": "^0.0.115",
     "tsx": "^4.23.1",
     "typescript": "^5.5.0",
     "vitest": "^3.2.6"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "dependencies": {
+    "y-partykit": "^0.0.33",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.31"
+  }
 }
