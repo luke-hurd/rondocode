@@ -19,19 +19,65 @@ thank you, Vijay.
 Upstream: [github.com/vijaypemmaraju/rondocode](https://github.com/vijaypemmaraju/rondocode)  
 This fork: [github.com/luke-hurd/rondocode](https://github.com/luke-hurd/rondocode)
 
-## What’s different in this fork
+## What’s new in this fork
 
-Additions on top of upstream (see [ENHANCEMENTS.md](ENHANCEMENTS.md) for the
-backlog):
+Everything below was added after forking. Upstream already shipped the core
+live-coding system (synth DSL, mini-notation, AudioWorklet engine, editor,
+examples, MCP bridge, offline render tools, etc.). For open ideas and status,
+see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 
-- **App I/O** — in-app MIDI import, offline WAV export, live master recording,
-  Web MIDI in/out, procedural sample packs (`core` + `kit`)
-- **Pattern DSL** — `squeezeBind` / `chop` / `striate`, mini pattern-valued
-  `*`/`/`, `0 .. 7` ranges, richer scale tables
-- **Engine** — sample-accurate `setParam` (`atFrame`), `note.midi`, `feedback()`,
-  sample `begin`/`end` regions, analysis `truePeak` / mel bands / integrated LUFS
-- **Agent sync** — successful MCP `eval_code` rewrites the editor buffer
-- **Tooling** — CI app build + Biome lint
+### App / UX
+
+| Feature | What it does |
+| --- | --- |
+| **In-app MIDI import** | Project library → **midi** — pick a `.mid`, get an editable project (synths, patterns, `setCps`). Same converter as the CLI (`midiToRondocode`). |
+| **Offline WAV export** | Library → **wav** — render the current program offline and download a 16-bit WAV. |
+| **Live master recording** | Library → **rec** / **stop** — capture the master bus to a downloadable WAV (AudioWorklet tap). |
+| **Web MIDI in** | Connected controllers trigger `noteOn`/`noteOff` on the first live synth (fail-open if unsupported). |
+| **Web MIDI out** | Pattern-scheduled notes are forwarded to MIDI outputs (not MIDI-in echoes). Optional MIDI clock API on the out handle. |
+| **Sample packs** | Built-in procedural packs in the samples popover: **`core`** (`vox`, `pad`, `riser`) and **`kit`** (`kick`, `snare`, `hat`, `clap`), with preview + insert. |
+| **Agent → editor sync** | Successful MCP `eval_code` rewrites the CodeMirror buffer to match what’s playing; `get_code` also returns `editorDoc`. |
+
+### Pattern DSL
+
+| Feature | What it does |
+| --- | --- |
+| **`squeezeBind`** | For each event, play an inner pattern time-stretched into that event’s slot. |
+| **`chop(n)`** | Subdivide each event into `n` equal pieces (rhythmic chop). |
+| **`.striate(n)`** | Chop into `n` slices and set `begin`/`end` (0..1) so `sample()` plays successive buffer regions (Tidal/Strudel-style). |
+| **Mini `a*[2 3]` / `a/[2 1]`** | Pattern-valued speed-up / slow-down factors via squeeze-bind. |
+| **Mini `0 .. 7`** | Inclusive integer ranges (also `0..7`); max 128 steps. |
+| **Richer scales** | Extra tables for `.scale(...)`: blues, majorBlues, harmonicMinor, melodicMinor, hungarianMinor, wholeTone, diminished, augmented, enigmatic, … |
+
+### Engine / DSP / analysis
+
+| Feature | What it does |
+| --- | --- |
+| **Sample-accurate `setParam`** | Protocol + realtime queue support `atFrame` so patterned params land with the note, not ~one lookahead early. |
+| **`note.midi`** | Discrete MIDI note signal alongside `note.freq` (handy for wavetable position / selects). |
+| **`feedback(fn, time, opts?)`** | Delayed feedback loop combinator (Karplus-style / external echoes). |
+| **Sample `begin` / `end`** | `sample()` auto-wires `begin`/`end` params (0..1) for region play; override with opts. Powers `.striate()`. |
+| **`truePeak`** | Inter-sample peak in offline analysis. |
+| **`melBands` + `melDistance`** | 32-band log-mel mean spectrum; cosine distance in `compare_renders`. |
+| **Integrated LUFS** | BS.1770-style K-weight + dual gating on `analyze()`; `lufs` in render-tool readings and compare deltas. |
+
+### Tooling / docs
+
+| Feature | What it does |
+| --- | --- |
+| **CI `vite build`** | GitHub Actions builds the app in addition to typecheck + tests. |
+| **Biome lint** | `pnpm lint` + CI lint step (starter rules; intentionally permissive). |
+| **ENHANCEMENTS.md** | Fork backlog / what’s done vs still open. |
+| **Docs / agent-guide** | DSL reference + MCP agent guide updated for editor sync, new combinators, and LUFS/mel analysis. |
+
+### Open PRs that land this work
+
+On this fork these are split for review:
+
+1. [App I/O](https://github.com/luke-hurd/rondocode/pull/1) — MIDI, WAV, record, packs, MIDI I/O, editor sync plumbing  
+2. [Pattern DSL](https://github.com/luke-hurd/rondocode/pull/2) — squeezeBind / chop / striate / mini / scales  
+3. [Engine DSP](https://github.com/luke-hurd/rondocode/pull/3) — LUFS, begin/end, note.midi, feedback *(stacked on #2)*  
+4. [Tooling + this README](https://github.com/luke-hurd/rondocode/pull/4) — Biome, CI, ENHANCEMENTS  
 
 ## Monorepo layout
 
@@ -76,6 +122,9 @@ in `packages/app/src/docs/`:
 pnpm tsx packages/server/scripts/render-example.ts "veldt (full)" 52 out.wav
 ```
 
+Agents can also use MCP `render_code` / `render_synth` / `compare_renders`
+(analysis includes `lufs`, `truePeak`, `melBands`, etc.).
+
 ## Importing MIDI
 
 In the app: project library → **midi**. From the CLI:
@@ -84,9 +133,8 @@ In the app: project library → **midi**. From the CLI:
 pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song" out.txt
 ```
 
-See upstream docs in this README’s history and `packages/pattern/src/midi.ts` for
-the full importer API. `midiToRondocode` in `packages/app/src/midi/import.ts` is
-the in-app converter.
+`midiToRondocode` in `packages/app/src/midi/import.ts` is the in-app converter.
+The low-level importer lives in `packages/pattern/src/midi.ts`.
 
 ## Inspiration
 
