@@ -9,6 +9,9 @@ import {
   lineNumbers,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
+import type * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 import {
   highlightSelectionMatches,
   selectNextOccurrence,
@@ -131,6 +134,27 @@ const toCmDiagnostics = (doc: Text, diags: Diagnostic[]): CmDiagnostic[] => {
   return out
 }
 
+/** Optional jam-room binding (Yjs + PartyKit). When set, the buffer is a
+ *  shared CRDT and Run/transport follow driver policy. */
+export type JamEditorOpts = {
+  ytext: Y.Text
+  awareness: Awareness
+  /** Spectator / projection: read-only buffer. */
+  readOnly?: boolean
+  /** Who may Run and broadcast transport (driver). */
+  canDrive: () => boolean
+  /** After a successful local Run while driving. */
+  onLocalEval?: (source: string) => void
+  /** After local stop while driving. */
+  onLocalStop?: () => void
+  /** After local play starts while driving. */
+  onLocalPlay?: (cps: number) => void
+}
+
+export type MountEditorOpts = {
+  jam?: JamEditorOpts
+}
+
 /** What mountEditor hands back — the extension seam for visualizers and
  *  widgets (Task 3.4+). */
 export interface EditorHandle {
@@ -178,7 +202,12 @@ export interface EditorHandle {
   dispose(): void
 }
 
-export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandle {
+export function mountEditor(
+  root: HTMLElement,
+  audio: AudioSession,
+  opts: MountEditorOpts = {},
+): EditorHandle {
+  const jam = opts.jam
   // Single source of truth for the flash pulse duration: CSS reads it here.
   document.documentElement.style.setProperty('--flash-ms', `${FLASH_MS}ms`)
 
@@ -305,7 +334,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
 
   // ---- editor state --------------------------------------------------
-  const initialDoc = loadDoc()
+  // Jam rooms use the shared Y.Text; solo mode keeps localStorage.
+  const initialDoc = jam ? jam.ytext.toString() || loadDoc() : loadDoc()
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
   let lastAttempted: string | undefined
   let lastGood: string | undefined
@@ -322,8 +352,15 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
    *  this). Only the ▶ path auto-starts the transport — dragging a slider
    *  while stopped stages the change silently. */
   const applyDoc = (autoplay: boolean): boolean => {
+    // Driver mode: only the driver may explicit-Run (broadcast). Widget
+    // re-evals (autoplay=false) stay local so non-drivers can still scrub.
+    if (autoplay && jam && !jam.canDrive()) {
+      flashRun()
+      runBtn.title = 'only the driver can Run — claim Drive in the jam bar'
+      return false
+    }
     const source = view.state.doc.toString()
-    saveDoc(source, SAVE_ON_EVAL_MS) // good or bad: the text is worth keeping
+    if (!jam) saveDoc(source, SAVE_ON_EVAL_MS) // good or bad: the text is worth keeping
     lastAttempted = source
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
@@ -337,7 +374,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // gesture, which is exactly what browsers require. Idempotent after.
         void audio.resume()
         session.transport('play')
+        jam?.onLocalPlay?.(session.getState().cps)
       }
+      if (autoplay) jam?.onLocalEval?.(source)
     }
     updateDirty(source)
     // Only explicit Runs (autoplay) record history — widget-drag re-evals fire
@@ -394,10 +433,22 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const meters = synthMeters()
 
   const stop = (): boolean => {
+    if (jam && !jam.canDrive()) {
+      // Non-drivers may still panic-stop their local audio.
+      session.transport('stop')
+      flasher.clearPending()
+      return true
+    }
     session.transport('stop')
     flasher.clearPending() // events that will never sound must not light up
+    jam?.onLocalStop?.()
     return true
   }
+
+  // Jam rooms: yCollab owns undo; solo keeps CM history().
+  const undoExt = jam
+    ? [yCollab(jam.ytext, jam.awareness), keymap.of(yUndoManagerKeymap)]
+    : [history(), keymap.of(historyKeymap)]
 
   const view: EditorView = new EditorView({
     parent: host,
@@ -407,6 +458,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // multi-cursor: CM6 collapses multi-range selections to one unless this
         // is enabled — it's what makes Cmd-D / Cmd-Shift-L actually stick.
         EditorState.allowMultipleSelections.of(true),
+        jam?.readOnly ? EditorState.readOnly.of(true) : [],
         Prec.highest(
           keymap.of([
             { key: 'Mod-Enter', run },
@@ -421,14 +473,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         ),
         lineNumbers(),
         highlightSpecialChars(),
-        history(),
+        ...undoExt,
         drawSelection(),
         indentOnInput(),
         bracketMatching(),
         highlightActiveLine(),
         highlightSelectionMatches(), // underline other occurrences of the selection
 
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        keymap.of([...defaultKeymap, indentWithTab]),
         javascript(),
         // DSL intellisense: context-aware completions (docs-driven, silent
         // inside mini-notation strings) + hover docs. Tooltips mount inside
@@ -464,8 +516,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           const doc = u.state.doc.toString()
           updateDirty(doc)
           // Persist typed-but-never-run text too: an accidental reload on
-          // a phone must not lose work.
-          saveDoc(doc, SAVE_ON_CHANGE_MS)
+          // a phone must not lose work. Jam rooms sync via Yjs — skip IDB.
+          if (!jam) saveDoc(doc, SAVE_ON_CHANGE_MS)
           emitDoc(doc) // library autosaves the active project
         }),
       ],

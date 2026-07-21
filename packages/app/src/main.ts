@@ -11,6 +11,10 @@ import { startMidiInput } from './midi/input'
 import { startMidiOut } from './midi/out'
 import { applyPalette } from './ui/palette'
 import { mountViz } from './viz/viz'
+import { roomIdFromLocation } from './jam/party-host'
+import { connectJam } from './jam/connect'
+import { attachJam } from './jam/mount'
+import { mountAuthUi } from './auth/ui'
 
 /* MCP bridge wiring: expose the Session command API to the local bridge
  * server (see session/bridge-client.ts for protocol, reach, and the
@@ -86,17 +90,51 @@ if (!app) throw new Error('missing #app root')
  * first Run resumes the context from its own click/keypress gesture — that's
  * where the browser's audio-unlock requirement is satisfied (see editor.ts). */
 AudioSession.start().then(
-  (audio) => {
-    const editor = mountEditor(app, audio)
+  async (audio) => {
+    const roomId = roomIdFromLocation()
+    let editor: EditorHandle
+    let disposeJam: (() => void) | undefined
+
+    if (roomId) {
+      document.body.classList.add('jam-mode')
+      // Seed from localStorage if the room is empty (first joiner).
+      let seed = ''
+      try {
+        seed = localStorage.getItem('rondocode-doc') ?? ''
+      } catch {
+        seed = ''
+      }
+      const connected = await connectJam({ roomId, seedDoc: seed || undefined })
+      editor = mountEditor(app, audio, {
+        jam: {
+          ytext: connected.ytext,
+          awareness: connected.awareness,
+          readOnly: connected.jam.isSpectator(),
+          canDrive: () => connected.jam.isDriver(),
+          onLocalEval: (source) => connected.jam.broadcastEval(source),
+          onLocalStop: () => connected.jam.broadcastTransport('stop'),
+          onLocalPlay: (cps) => connected.jam.broadcastTransport('play', cps),
+        },
+      })
+      disposeJam = attachJam(editor, connected)
+      mountAuthUi(editor, { roomId })
+    } else {
+      editor = mountEditor(app, audio)
+      mountAuthUi(editor)
+    }
+
     mountViz(app, editor, audio)
     void mountLibrary(editor).catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
     mountSynthLib(editor)
     mountShaderViz(app, editor, audio)
+    // MCP bridge stays exclusive (supersede). Jam rooms are a separate plane —
+    // agents attach to the driver's tab, not the PartyKit room.
     startBridge(editor)
-    // Web MIDI in → first live synth; out mirrors pattern notes (fail-open).
     startMidiInput(editor.session)
     startMidiOut(editor.session)
+
+    window.addEventListener('pagehide', () => disposeJam?.())
   },
   (e: unknown) => {
     const banner = document.createElement('div')
