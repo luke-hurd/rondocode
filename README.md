@@ -54,6 +54,9 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **Mini `a*[2 3]` / `a/[2 1]`** | Pattern-valued speed-up / slow-down factors via squeeze-bind. |
 | **Mini `0 .. 7`** | Inclusive integer ranges (also `0..7`); max 128 steps. |
 | **Richer scales** | Extra tables for `.scale(...)`: blues, majorBlues, harmonicMinor, melodicMinor, hungarianMinor, wholeTone, diminished, augmented, enigmatic, … |
+| **`density` / `hurry`** | Aliases of `fast` (Tidal/Strudel naming). |
+| **`mask` / `inside` / `outside` / `zoom`** | Bool gating, apply-in-sped-up-time, apply-in-slowed-time, cycle-window magnify. |
+| **`binary(n)`** | Boolean rhythm from binary digits (handy with `struct` / `mask`). |
 
 ### Engine / DSP / analysis
 
@@ -63,6 +66,8 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **`note.midi`** | Discrete MIDI note signal alongside `note.freq` (handy for wavetable position / selects). |
 | **`feedback(fn, time, opts?)`** | Delayed feedback loop combinator (Karplus-style / external echoes). |
 | **Sample `begin` / `end`** | `sample()` auto-wires `begin`/`end` params (0..1) for region play; override with opts. Powers `.striate()`. |
+| **Stereo samples** | Loaded stereo files keep L/R (no host downmix); imaging preserved through gain-only paths (`mul`/`adsr`). |
+| **Shared FX bus** | `defineFx('room', …)` + `send('pad', 'room', 0.35)` — one return rack, many sends. |
 | **`truePeak`** | Inter-sample peak in offline analysis. |
 | **`melBands` + `melDistance`** | 32-band log-mel mean spectrum; cosine distance in `compare_renders`. |
 | **Integrated LUFS** | BS.1770-style K-weight + dual gating on `analyze()`; `lufs` in render-tool readings and compare deltas. |

@@ -289,7 +289,41 @@ export class Voice {
     const glBal = this.glBal
     const grBal = this.grBal
     let sumSq = 0
-    if (pos) {
+    // Stereo sample recovery: SampleKernel writes mid to its out; gain-only
+    // ops (mul/adsr) scale mid → panIn. Reconstruct L/R = stereo * (panIn/mid).
+    const sk = g.sampleKernel
+    if (sk?.hadStereo) {
+      // Mid for scale is the SampleKernel's mono `out` (0.5*(L+R)).
+      let midBuf: Float32Array | null = null
+      for (const st of g.steps) {
+        if (st.kernel === sk) {
+          midBuf = st.out
+          break
+        }
+      }
+      const sl = sk.stereoL
+      const sr = sk.stereoR
+      for (let i = 0; i < n; i++) {
+        const m = midBuf !== null ? midBuf[i]! : 0.5 * (sl[i]! + sr[i]!)
+        const scale = Math.abs(m) > 1e-12 ? input[i]! / m : 0
+        let l = sl[i]! * scale * vel
+        let r = sr[i]! * scale * vel
+        if (pos) {
+          const p = clamp(pos[i]!, 0, 1)
+          // Balance (not mono pan): tilt existing stereo.
+          const bl = Math.cos(p * HALF_PI) * Math.SQRT2
+          const br = Math.sin(p * HALF_PI) * Math.SQRT2
+          l *= bl * glBal
+          r *= br * grBal
+        } else {
+          l *= glBal
+          r *= grBal
+        }
+        outL[i] = outL[i]! + l
+        outR[i] = outR[i]! + r
+        sumSq += l * l + r * r
+      }
+    } else if (pos) {
       for (let i = 0; i < n; i++) {
         const p = clamp(pos[i]!, 0, 1)
         const x = input[i]! * vel

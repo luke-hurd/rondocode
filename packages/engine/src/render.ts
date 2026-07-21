@@ -46,9 +46,10 @@ export interface RenderOptions {
   sampleRate?: number
   /** Polyphony of the temporary VoicePool. Default 8. */
   maxVoices?: number
-  /** Audio samples available to sample('name') nodes, keyed by name. Each is
-   *  mono PCM at its own sampleRate (the kernel resamples to the render rate). */
-  samples?: Record<string, { data: Float32Array; sampleRate: number }>
+  /** Audio samples available to sample('name') nodes, keyed by name. Mono:
+   *  `data` only. Stereo: optional `dataR` (same length). The kernel resamples
+   *  to the render rate. */
+  samples?: Record<string, { data: Float32Array; dataR?: Float32Array; sampleRate: number }>
 }
 
 /** Sort rank for events landing on the same SAMPLE (ordering happens in the
@@ -130,7 +131,9 @@ export function renderOffline(
   const ctx: DspContext = { sampleRate }
   if (opts?.samples !== undefined) {
     const bank = new SampleBank()
-    for (const [name, s] of Object.entries(opts.samples)) bank.set(name, s.data, s.sampleRate)
+    for (const [name, s] of Object.entries(opts.samples)) {
+      bank.set(name, s.data, s.sampleRate, s.dataR)
+    }
     ctx.samples = bank
   }
   const pool = new VoicePool(def.graph, ctx, maxVoices, def.voiceOpts)

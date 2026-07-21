@@ -47,7 +47,10 @@ export class AudioSession {
   private readonly sampleListeners = new Set<() => void>()
   /** main-thread copy of each sample's PCM, kept so the UI can preview it
    *  (the worklet's copy is transferred and not readable from here). */
-  private readonly _pcm = new Map<string, { data: Float32Array; sampleRate: number }>()
+  private readonly _pcm = new Map<
+    string,
+    { data: Float32Array; dataR?: Float32Array; sampleRate: number }
+  >()
   private _preview: AudioBufferSourceNode | null = null
 
   private capture: AudioWorkletNode | null = null
@@ -181,25 +184,35 @@ export class AudioSession {
   }
 
   /** Decode an audio file (any format the browser supports — WAV/MP3/etc.) and
-   *  load it into the engine under `name`, downmixed to mono. The PCM buffer is
-   *  TRANSFERRED to the worklet (zero-copy). Returns the frame count loaded.
-   *  Throws if decoding fails (unsupported/corrupt file). */
+   *  load it into the engine under `name`. Stereo files keep L/R; mono stays
+   *  one channel. PCM buffers are TRANSFERRED to the worklet (zero-copy).
+   *  Returns the frame count loaded. Throws if decoding fails. */
   async loadSample(name: string, bytes: ArrayBuffer): Promise<number> {
     const buf = await this.context.decodeAudioData(bytes)
     const n = buf.length
-    const mono = new Float32Array(n)
     const chans = buf.numberOfChannels
-    for (let c = 0; c < chans; c++) {
-      const ch = buf.getChannelData(c)
-      for (let i = 0; i < n; i++) mono[i]! += ch[i]!
+    const left = new Float32Array(n)
+    left.set(buf.getChannelData(0))
+    let right: Float32Array | undefined
+    if (chans >= 2) {
+      right = new Float32Array(n)
+      right.set(buf.getChannelData(1))
     }
-    if (chans > 1) for (let i = 0; i < n; i++) mono[i]! /= chans
-    const keep = mono.slice() // main-thread copy for preview (mono is transferred below)
+    const keepL = left.slice()
+    const keepR = right?.slice()
+    const transfer: Transferable[] = [left.buffer]
+    if (right) transfer.push(right.buffer)
     this.node.port.postMessage(
-      { kind: 'loadSample', name, data: mono, sampleRate: buf.sampleRate } satisfies EngineMessage,
-      [mono.buffer],
+      {
+        kind: 'loadSample',
+        name,
+        data: left,
+        sampleRate: buf.sampleRate,
+        ...(right ? { dataR: right } : {}),
+      } satisfies EngineMessage,
+      transfer,
     )
-    this._pcm.set(name, { data: keep, sampleRate: buf.sampleRate })
+    this._pcm.set(name, { data: keepL, dataR: keepR, sampleRate: buf.sampleRate })
     this.recordSample(name, n, buf.sampleRate, false)
     return n
   }
@@ -230,8 +243,10 @@ export class AudioSession {
     const pcm = this._pcm.get(name)
     if (!pcm) return
     this.stopPreview()
-    const buf = this.context.createBuffer(1, pcm.data.length, pcm.sampleRate)
+    const chans = pcm.dataR ? 2 : 1
+    const buf = this.context.createBuffer(chans, pcm.data.length, pcm.sampleRate)
     buf.getChannelData(0).set(pcm.data)
+    if (pcm.dataR) buf.getChannelData(1).set(pcm.dataR)
     const src = this.context.createBufferSource()
     src.buffer = buf
     const gain = this.context.createGain()

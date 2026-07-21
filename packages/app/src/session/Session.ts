@@ -145,6 +145,10 @@ export class Session {
   private liveScAmounts = new Map<string, number>()
   /** JSON fingerprint of the live master-comp config (undefined = none). */
   private liveMasterComp: string | undefined
+  /** Live shared FX bus names (for removeFx when a defineFx disappears). */
+  private liveFx = new Set<string>()
+  /** Fingerprint of staged sends: JSON of synth→fx→amount. */
+  private liveSends: string | undefined
   /** Slide notes whose release is deferred until the synth's next note lands
    *  (adaptive 303 slide): synth name -> the held slide note. */
   private readonly pendingSlide = new Map<string, number>()
@@ -315,6 +319,46 @@ export class Session {
       this.liveMasterComp = mcJson
     }
 
+    // Shared FX buses + sends.
+    const newFx = result.fxBuses ?? new Map()
+    for (const [name, graph] of newFx) {
+      this.audio.send({ kind: 'defineFx', name, graph })
+    }
+    for (const name of this.liveFx) {
+      if (!newFx.has(name)) this.audio.send({ kind: 'removeFx', name })
+    }
+    this.liveFx = new Set(newFx.keys())
+
+    const sendsObj: Record<string, Record<string, number>> = {}
+    if (result.sends) {
+      for (const [synth, map] of result.sends) sendsObj[synth] = map
+    }
+    const sendsJson = JSON.stringify(sendsObj)
+    if (sendsJson !== this.liveSends) {
+      // Reset previous sends to 0, then apply new ones.
+      if (this.liveSends !== undefined) {
+        try {
+          const prev = JSON.parse(this.liveSends) as Record<string, Record<string, number>>
+          for (const [synth, map] of Object.entries(prev)) {
+            for (const fxName of Object.keys(map)) {
+              if (this.liveSynths.has(synth)) {
+                this.audio.send({ kind: 'setSend', synth, fx: fxName, amount: 0 })
+              }
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      for (const [synth, map] of Object.entries(sendsObj)) {
+        if (!this.liveSynths.has(synth)) continue
+        for (const [fxName, amount] of Object.entries(map)) {
+          this.audio.send({ kind: 'setSend', synth, fx: fxName, amount })
+        }
+      }
+      this.liveSends = sendsJson
+    }
+
     this.lastGoodSource = source
     this.lastError = undefined
     this.onState?.(this.getState())
@@ -465,6 +509,8 @@ export class Session {
     this.liveSidechain = undefined
     this.liveScAmounts.clear()
     this.liveMasterComp = undefined
+    this.liveFx.clear()
+    this.liveSends = undefined
     this.pendingSlide.clear()
     for (const name of this.scheduler.patterns()) this.scheduler.removePattern(name)
   }

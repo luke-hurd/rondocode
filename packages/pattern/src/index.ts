@@ -33,6 +33,7 @@ export {
   perlin,
 } from './signal'
 export { arrange, rise, fall } from './arrange'
+export { binary } from './combinators'
 export {
   parseMidi,
   MidiParseError,

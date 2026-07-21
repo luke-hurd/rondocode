@@ -106,6 +106,12 @@ const GLOBALS: DocEntry[] = [
     'Like fastcat but each pattern gets a slice of the cycle proportional to its weight.',
     "timecat([[3, n('0')], [1, n('7')]])",
   ),
+  g(
+    'binary',
+    'binary(n: number)',
+    'Boolean rhythm from the binary digits of n (MSB first): binary(5) is 101 over one cycle — handy with struct/mask.',
+    "n('0').struct(binary(11))",
+  ),
   g('silence', 'silence', 'The empty pattern: no events, ever, handy as a branch in cat() or every().', "cat(n('0 3'), silence)"),
   g(
     'reify',
@@ -204,6 +210,24 @@ const GLOBALS: DocEntry[] = [
     'masterCompress(opts?: { threshold?; ratio?; attack?; release?; knee?; makeup? })',
     'A glue compressor on the whole master bus (stereo-linked, after master gain, before the limiter). threshold dB (def -18), ratio (def 4), attack/release ms (def 10/120), knee dB (def 6), makeup dB (def 0). Call again to change it; omit to remove.',
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
+  ),
+  g(
+    'fx',
+    'fx(build: (ctx: PostCtx) => Sig)',
+    'Build a shared FX return graph (same nodes as a synth post chain: reverb, delay, compress, …). Pass to defineFx, or use defineFx(name, build) directly.',
+    "fx(({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.85 }), 1))",
+  ),
+  g(
+    'defineFx',
+    "defineFx(name: string, build: ((ctx) => Sig) | GraphSpec)",
+    'Register a named shared FX return bus. Many synths can send into it; the wet mix lands on the master after all dry channels.',
+    "defineFx('room', ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.9, damp: 0.4 }), 1))",
+  ),
+  g(
+    'send',
+    'send(synth: string, fx: string, amount: number)',
+    'Send amount (0..1) of a synth’s dry (after its local post, before the channel fader) into a shared FX bus from defineFx.',
+    "send('pad', 'room', 0.35)",
   ),
 ]
 
@@ -321,6 +345,32 @@ const PATTERN_METHODS: DocEntry[] = [
     "note('c5*8').swingBy(1/3, 4)",
   ),
   pm('swing', 'swing(n: number)', 'Classic triplet swing over n slices per cycle, swingBy(1/3, n).', ".euclid(5, 8).swing(4)"),
+  pm('density', 'density(k: number)', 'Alias of fast(k) — denser / sped-up events (Tidal density).', "n('0 3').density(2)"),
+  pm('hurry', 'hurry(k: number)', 'Speed the pattern up by k (alias of fast for now).', "note('c4 e4').hurry(2)"),
+  pm(
+    'mask',
+    'mask(boolPat: Pattern<boolean>)',
+    'Keep THIS pattern’s rhythm; silence steps where the boolean pattern is false (opposite of struct).',
+    "n('0 3 5 7').mask(mini('1 0 1 1'))",
+  ),
+  pm(
+    'inside',
+    'inside(n: number, f: (p) => p)',
+    'Apply f in sped-up time: f(this.fast(n)).slow(n) — transform as if the cycle were denser.',
+    '.inside(2, x => x.rev())',
+  ),
+  pm(
+    'outside',
+    'outside(n: number, f: (p) => p)',
+    'Apply f in slowed-down time: f(this.slow(n)).fast(n).',
+    '.outside(2, x => x.early(0.1))',
+  ),
+  pm(
+    'zoom',
+    'zoom(s: number, e: number)',
+    'Play cycle fraction [s, e) stretched to fill the whole cycle — a magnifying glass on part of the bar.',
+    "n('0 1 2 3 4 5 6 7').zoom(0, 0.5)",
+  ),
   // value/hap plumbing (public)
   pm('withValue', 'withValue(f: (v) => v)', 'Transform every value with a function, the general-purpose map.', "n('0 3 5').withValue(v => v * 2)"),
   pm('filterHaps', 'filterHaps(f: (hap) => boolean)', 'Keep only the events the predicate accepts (sees full event objects with timing).', '.filterHaps(h => h.value.n !== 0)'),
@@ -445,7 +495,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'sample',
     'sample(gate, name, opts?: { root, speed, loop, begin, end })',
-    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Auto-wires begin/end params (0..1) for .striate() / .ctrl — override with opts.begin/end. Mono out, shape with an ADSR. Unknown name → silence.',
+    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Auto-wires begin/end params (0..1) for .striate() / .ctrl. Stereo files keep L/R when followed by gain-only ops (mul/adsr); filters collapse to mid. Unknown name → silence.',
     "sample(gate, 'kick').mul(adsr(gate, { r: 0.1 })); /* slice: */ note('c4').sound('vox').striate(8)",
   ),
   sc(

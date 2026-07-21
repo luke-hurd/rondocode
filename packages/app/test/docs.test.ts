@@ -33,7 +33,16 @@ describe('docs coverage: globals', () => {
     // p / defineSynth / setCps are injected per-eval by evalCode() (see
     // STAGING_NAMES in src/session/evalCode.ts) — part of the vocabulary
     // even though they are not baseScope keys.
-    const live = [...Object.keys(baseScope), 'p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress']
+    const live = [
+      ...Object.keys(baseScope),
+      'p',
+      'defineSynth',
+      'setCps',
+      'sidechain',
+      'masterCompress',
+      'defineFx',
+      'send',
+    ]
     assertBidirectional(namesOfKind('global'), live, 'globals')
   })
 })

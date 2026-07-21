@@ -1,7 +1,9 @@
-/** One decoded audio buffer: mono PCM at its own sample rate. Stereo sources
- *  are downmixed to mono on load (the voice graph is mono until pan/out). */
+/** One decoded audio buffer at its own sample rate. Mono: `data` only.
+ *  Stereo: `data` = left, `dataR` = right (same length). */
 export interface SampleData {
   data: Float32Array
+  /** Right channel when stereo; omitted for mono. */
+  dataR?: Float32Array
   sampleRate: number
 }
 
