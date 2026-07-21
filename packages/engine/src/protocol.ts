@@ -32,6 +32,18 @@ export type EngineMessage = (
   | { kind: 'patchConstants'; name: string; patches: { node: number; port: string; value: number }[] }
   /** Drop the synth and all its voices immediately (hard stop, no release). */
   | { kind: 'removeSynth'; name: string }
+  /** Create/replace a shared send bus: a named FX chain (a POST-style graph,
+   *  compiled like a synth's post-chain) that synths feed via per-synth send
+   *  amounts (see setSend). The bus output is summed into the master before
+   *  the master gain/compressor. `gain` (default 1) scales the bus output.
+   *  Like defineSynth, a bad graph leaves any existing bus untouched. */
+  | { kind: 'defineBus'; name: string; graph: GraphSpec; gain?: number }
+  /** Drop a shared bus; any sends into it become no-ops. */
+  | { kind: 'removeBus'; name: string }
+  /** Per-synth send amount (0..1, clamped) into a shared bus. Unknown synth or
+   *  bus → validated no-op. Pre-fader/pre-duck tap, so a reverb send does not
+   *  pump with the sidechain. */
+  | { kind: 'setSend'; synth: string; bus: string; amount: number }
   /** `atFrame` is an absolute frame in the SAME timeline the host passes as
    *  `startFrame` to RealtimeEngine.process() — for an AudioWorklet host
    *  that's the context's running frame counter. Omitted or already past →
@@ -82,15 +94,6 @@ export type EngineMessage = (
   | { kind: 'setMasterComp'; threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }
   /** Remove the master glue compressor (no reduction). */
   | { kind: 'clearMasterComp' }
-  /** Define (or replace) a named shared FX return bus. `graph` is a post-style
-   *  GraphSpec (`businput` → effects → out). Channels send into it via setSend;
-   *  the wet output is mixed into the master after all dry channels. */
-  | { kind: 'defineFx'; name: string; graph: GraphSpec }
-  /** Drop a shared FX bus. Active sends to it become no-ops. */
-  | { kind: 'removeFx'; name: string }
-  /** Set how much of `synth`'s post-fader dry (after local post, before strip)
-   *  is sent into FX bus `fx`. amount 0 removes the send. Clamped to [0, 1]. */
-  | { kind: 'setSend'; synth: string; fx: string; amount: number }
 ) & {
   /** Optional correlation id, echoed back on any error event this message
    *  provokes so hosts (MCP bridge, UI) can match failures to requests.
@@ -111,4 +114,4 @@ export type EngineEvent =
    *  for schedulers stamping future atFrame values. Produced by
    *  RealtimeEngine.collectMeters() on request — the engine does not emit
    *  these unprompted. */
-  | { kind: 'meters'; frame: number; master: number; channels: Record<string, number> }
+  | { kind: 'meters'; frame: number; master: number; channels: Record<string, number>; buses?: Record<string, number> }

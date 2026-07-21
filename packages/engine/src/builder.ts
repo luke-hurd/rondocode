@@ -627,15 +627,6 @@ const returnsOwnSig = (result: unknown, b: Builder): boolean =>
  *  compiled here so errors surface at definition time; a synth with no postFn
  *  has `post` undefined and one with no opts has `voiceOpts` undefined and
  *  behaves exactly as before. */
-/** Build a shared FX return graph (same shape as a synth post chain).
- *  Pass the result to the eval-time `defineFx(name, graph)` staging API, or
- *  use `defineFx(name, fn)` which builds this for you. */
-export function fx(fn: (ctx: PostCtx) => Sig): GraphSpec {
-  return buildGraph(makePostCtx, returnsOwnSig, fn, (g) => {
-    compilePost(g, { sampleRate: 48000 })
-  })
-}
-
 export function synth(voiceFn: (ctx: SynthCtx) => Sig, opts: VoiceOptsInput): SynthDef
 export function synth(
   voiceFn: (ctx: SynthCtx) => Sig,
@@ -671,4 +662,13 @@ export function synth(
     def.maxVoices = Math.floor(Math.min(64, Math.max(1, optsInput.voices)))
   }
   return def
+}
+
+/** Build a shared send-bus FX graph. `fxFn` is a POST-style chain — it takes
+ *  the summed sends as `input` and returns the processed signal — compiled
+ *  exactly like a synth's post chain, so bus FX behave identically. */
+export function busGraph(fxFn: (ctx: PostCtx) => Sig): GraphSpec {
+  return buildGraph(makePostCtx, returnsOwnSig, fxFn, (g) => {
+    compilePost(g, { sampleRate: 48000 })
+  })
 }

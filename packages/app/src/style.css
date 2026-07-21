@@ -598,6 +598,61 @@ body {
   width: 72px;
 }
 
+/* --- bus section: shared send buses, faders that edit the code --- */
+
+.mixer-buses {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.mixer-bus-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+}
+
+.mixer-bus-name {
+  color: var(--c-accent-alt);
+}
+
+.mixer-bus-sends {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  /* indent the sends under their bus header */
+  padding-left: calc(64px + var(--sp-2));
+}
+
+.mixer-send {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl); /* touch target row */
+}
+
+.mixer-send-label {
+  flex: none;
+  width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+}
+
+.mixer-send input[type='range'] {
+  min-height: var(--h-ctrl); /* touch target */
+  margin: 0;
+  background: transparent;
+  accent-color: var(--c-accent-alt);
+}
+
 /* --- runtime-error strip (scheduler/engine diagnostics) --- */
 
 .status-strip {
@@ -1529,4 +1584,76 @@ body.shaderviz-on .cm-content {
   .rec-pill svg {
     animation: none;
   }
+}
+
+/* header overflow menu (ui/header-overflow.ts) */
+.more-btn {
+  display: none; /* only phones, where the controls would overflow the row */
+  min-width: var(--h-ctrl);
+}
+.more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.more-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 200px;
+  max-width: min(300px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.more-pop.hidden {
+  display: none;
+}
+.more-pop .btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+}
+.more-pop .btn-label {
+  display: inline; /* labels show in the menu (the bar hides them) */
+}
+@media (max-width: 560px) {
+  .more-btn {
+    display: inline-flex;
+  }
+}
+
+/* MIDI input popover (editor/midi.ts) — shares the export popover styles */
+.midi-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 240px;
+  max-width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.midi-pop.hidden {
+  display: none;
+}
+.midi-status {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.midi-pick {
+  padding: var(--sp-1) var(--sp-2);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
 }

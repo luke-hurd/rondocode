@@ -185,14 +185,19 @@ export interface EditorHandle {
   onVisual(fn: (wgsl: string | null, synths: string[]) => void): () => void
   /** Current editor text. */
   getDoc(): string
+  /** Agent/MCP sync: rewrite the buffer to match a source the Session already
+   *  applied. Does not stop transport. Treats the source as last-good so the
+   *  dirty dot clears (the human's editor now matches what's playing). */
+  setDoc(code: string): void
   /** Replace the whole buffer (loading a project or restoring a version):
    *  stops the transport first — like loading an example — so Run starts the
    *  new program cleanly from cycle 0 rather than hot-swapping mid-cycle. */
   loadCode(code: string): void
-  /** Replace the buffer WITHOUT stopping transport. Used when an agent/MCP
-   *  eval already applied the same source to the Session — keeps the human's
-   *  editor in sync while the tune keeps playing. Marks the doc clean. */
-  setDoc(code: string): void
+  /** Apply a literal rewrite to the doc and re-eval — the same path the inline
+   *  widget/scrub controls use, exposed so the mixer's bus faders can edit the
+   *  bus() literals in the source. A drag passes immediate=false (throttled,
+   *  leading+trailing eval); a discrete set passes true. */
+  rewrite(change: { from: number; to: number; insert: string }, immediate: boolean): void
   /** Fired on every doc change with the new text (the library autosaves the
    *  active project from this). Returns an unsubscribe function. */
   onDoc(fn: (code: string) => void): () => void
@@ -256,7 +261,7 @@ export function mountEditor(
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
   const exportBtn = el('button', 'btn export-btn')
   exportBtn.type = 'button'
-  exportBtn.replaceChildren(iconEl('download'))
+  exportBtn.replaceChildren(iconEl('download'), el('span', 'btn-label', 'export'))
   controls.append(sampleBtn, exportBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
@@ -712,8 +717,12 @@ export function mountEditor(
     onPatternEvents: subscribePatternEvents,
     onVisual: subscribeVisual,
     getDoc: () => view.state.doc.toString(),
-    loadCode,
     setDoc,
+    loadCode,
+    rewrite: (change, immediate) => {
+      view.dispatch({ changes: change })
+      requestEval(immediate)
+    },
     onDoc: (fn) => {
       docListeners.add(fn)
       return () => docListeners.delete(fn)

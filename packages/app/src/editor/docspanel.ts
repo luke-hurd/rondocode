@@ -36,7 +36,7 @@ export interface DocsHandle {
 export function mountDocs(editor: EditorHandle): DocsHandle {
   const btn = el('button', 'btn docs-btn')
   btn.type = 'button'
-  btn.innerHTML = icon('help')
+  btn.innerHTML = `${icon('help')}<span class="btn-label">docs</span>`
   tooltip(btn, 'DSL reference')
   btn.setAttribute('aria-expanded', 'false')
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar

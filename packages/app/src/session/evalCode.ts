@@ -3,8 +3,8 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { fx as buildFx } from '@rondocode/engine'
-import type { GraphSpec, SynthDef } from '@rondocode/engine'
+import { busGraph } from '@rondocode/engine'
+import type { SynthDef, GraphSpec } from '@rondocode/engine'
 
 /* ------------------------------------------------------------------------- *
  * evalCode: source text in, STAGED registrations out. This is the pure core
@@ -56,6 +56,20 @@ export interface Diagnostic {
   source: 'eval' | 'scheduler' | 'engine'
 }
 
+/** A staged shared send-bus: its compiled FX graph plus an output gain. */
+export interface BusDef {
+  graph: GraphSpec
+  gain: number
+}
+
+/** A staged per-synth send into a bus (0..1); collected from the bus() send
+ *  maps and diffed into setSend messages by the Session. */
+export interface SendSpec {
+  synth: string
+  bus: string
+  amount: number
+}
+
 export interface EvalResult {
   /** True when the source parsed and ran to completion (warnings allowed). */
   ok: boolean
@@ -64,6 +78,10 @@ export interface EvalResult {
   synths: Map<string, SynthDef>
   /** Staged pattern registrations — populated only when ok. */
   patterns: Map<string, Pattern<ControlMap>>
+  /** Staged shared send buses — populated only when ok. */
+  buses: Map<string, BusDef>
+  /** Staged per-synth sends into buses — populated only when ok. */
+  sends: SendSpec[]
   /** Present iff the code called setCps(x); clamped to [0.05, 4]. */
   cps?: number
   /** Present iff the code called sidechain(source, opts). `release` in the
@@ -76,10 +94,6 @@ export interface EvalResult {
    *  compressor config. All fields in the compressor's native units (dB /
    *  ratio / ms); validated + clamped engine-side. */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
-  /** Staged shared FX return buses (defineFx) — name → post-style GraphSpec. */
-  fxBuses?: Map<string, GraphSpec>
-  /** Staged sends: synth → { fxName → amount }. */
-  sends?: Map<string, Record<string, number>>
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -91,16 +105,7 @@ export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set([
-  'p',
-  'defineSynth',
-  'setCps',
-  'sidechain',
-  'masterCompress',
-  'visual',
-  'defineFx',
-  'send',
-])
+const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -243,7 +248,7 @@ const mapRuntimeError = (e: unknown, sourceLineCount: number): Diagnostic => {
 export function evalCode(source: string, scope: Record<string, unknown>): EvalResult {
   const parsed = parseSource(source)
   if ('error' in parsed) {
-    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map() }
+    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map(), buses: new Map(), sends: [] }
   }
   const { program } = parsed
   const { transformed, warnings } = transformSynthDecls(source, program)
@@ -252,12 +257,12 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   // Per-eval staging: closed over by the injected p/defineSynth/setCps.
   const synths = new Map<string, SynthDef>()
   const patterns = new Map<string, Pattern<ControlMap>>()
+  const buses = new Map<string, BusDef>()
+  const sends: SendSpec[] = []
   let cps: number | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
   let visualSrc: string | undefined
-  const fxBuses = new Map<string, GraphSpec>()
-  const sends = new Map<string, Record<string, number>>()
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
   // a timer/promise would otherwise silently vanish (its eval's maps are
@@ -385,41 +390,44 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     visualSrc = wgsl
   }
 
-  /** Define a named shared FX return bus. `def` is either a post-style builder
-   *  function `(ctx) => sig` or a GraphSpec from `fx(fn)`. */
-  const defineFx = (name: unknown, def: unknown): void => {
-    assertOpen('defineFx')
+  /** Declare a shared send bus: a named FX chain that synths feed. `fxFn` is a
+   *  POST-style chain — `({ input, reverb, delay, ... }) => sig` — compiled
+   *  like a synth's post chain. `sendMap` (optional) routes synths into the bus:
+   *  `{ pad: 0.4, arp: 0.2 }` sends 40% of pad and 20% of arp (pre-fader, so a
+   *  reverb send doesn't pump with the sidechain). `opts.gain` (default 1)
+   *  scales the bus output, which is summed into the master before the glue
+   *  compressor. Last bus() with a given name wins. */
+  const bus = (name: unknown, fxFn: unknown, sendMap?: unknown, opts?: unknown): void => {
+    assertOpen('bus')
     if (typeof name !== 'string' || name.length === 0) {
-      throw new TypeError(`defineFx(): name must be a non-empty string, got ${JSON.stringify(name)}`)
+      throw new TypeError(`bus(): name must be a non-empty string, got ${JSON.stringify(name)}`)
     }
-    if (typeof def === 'function') {
-      fxBuses.set(name, buildFx(def as Parameters<typeof buildFx>[0]))
-      return
+    if (typeof fxFn !== 'function') {
+      throw new TypeError(`bus('${name}'): second argument must be an FX function ({ input, reverb, ... }) => sig`)
     }
-    if (typeof def === 'object' && def !== null && 'nodes' in def && 'out' in def) {
-      fxBuses.set(name, def as GraphSpec)
-      return
+    const o = (typeof opts === 'object' && opts !== null ? opts : {}) as { gain?: unknown }
+    let gain = 1
+    if (o.gain !== undefined) {
+      if (typeof o.gain !== 'number' || !Number.isFinite(o.gain)) {
+        throw new TypeError(`bus('${name}'): gain must be a finite number`)
+      }
+      gain = o.gain
     }
-    throw new TypeError(`defineFx('${name}'): expected fx(fn) graph or (ctx) => Sig builder`)
-  }
-
-  /** Send `amount` (0..1) of `synth`'s dry (after local post) into FX `fxName`. */
-  const send = (synthName: unknown, fxName: unknown, amount: unknown): void => {
-    assertOpen('send')
-    if (typeof synthName !== 'string' || synthName.length === 0) {
-      throw new TypeError(`send(): synth must be a non-empty string`)
+    // Compile the FX chain now (throws map into eval diagnostics like any
+    // synth-body error), staging a plain GraphSpec for the engine.
+    const graph = busGraph(fxFn as Parameters<typeof busGraph>[0])
+    buses.set(name, { graph, gain })
+    if (sendMap !== undefined) {
+      if (typeof sendMap !== 'object' || sendMap === null) {
+        throw new TypeError(`bus('${name}'): third argument must be a send map { synth: amount }`)
+      }
+      for (const [synth, amount] of Object.entries(sendMap as Record<string, unknown>)) {
+        if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || amount > 1) {
+          throw new TypeError(`bus('${name}'): send['${synth}'] must be a number in [0, 1], got ${String(amount)}`)
+        }
+        sends.push({ synth, bus: name, amount })
+      }
     }
-    if (typeof fxName !== 'string' || fxName.length === 0) {
-      throw new TypeError(`send(): fx must be a non-empty string`)
-    }
-    if (typeof amount !== 'number' || !Number.isFinite(amount)) {
-      throw new TypeError(`send('${synthName}', '${fxName}'): amount must be a finite number`)
-    }
-    const a = Math.min(1, Math.max(0, amount))
-    const cur = sends.get(synthName) ?? {}
-    if (a <= 0) delete cur[fxName]
-    else cur[fxName] = a
-    sends.set(synthName, cur)
   }
 
   const names: string[] = []
@@ -432,8 +440,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'defineFx', 'send')
-  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, defineFx, send)
+  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus')
+  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -446,17 +454,15 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     )
     // All-or-nothing: partial registrations from before the throw are
     // DISCARDED — fresh empty maps, never the staging ones.
-    return { ok: false, diagnostics, synths: new Map(), patterns: new Map() }
+    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [] }
   } finally {
     sealed = true
   }
 
-  const result: EvalResult = { ok: true, diagnostics, synths, patterns }
+  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends }
   if (cps !== undefined) result.cps = cps
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
   if (visualSrc !== undefined) result.visual = visualSrc
-  if (fxBuses.size > 0) result.fxBuses = fxBuses
-  if (sends.size > 0) result.sends = sends
   return result
 }

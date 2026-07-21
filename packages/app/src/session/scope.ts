@@ -1,4 +1,4 @@
-import { fx, synth } from '@rondocode/engine'
+import { synth } from '@rondocode/engine'
 import {
   Pattern,
   reify,
@@ -69,7 +69,6 @@ const pick = <T>(v: T, ..._options: T[]): T => v
 export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // synth definition (engine builder DSL)
   synth,
-  fx,
   // pattern entry points
   n,
   note,

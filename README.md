@@ -33,9 +33,11 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **In-app MIDI import** | Project library → **midi** — pick a `.mid`, get an editable project (synths, patterns, `setCps`). Same converter as the CLI (`midiToRondocode`). |
 | **Offline WAV export** | Header **export** → bounce the current program offline to a 16-bit WAV. |
 | **Live master recording** | Header **export** → **rec** / **stop** — capture the master bus to a downloadable WAV. |
-| **Web MIDI in** | Connected controllers trigger `noteOn`/`noteOff` on the first live synth (fail-open if unsupported). |
+| **Web MIDI in** | Header MIDI control + connected controllers trigger `noteOn`/`noteOff` on a chosen live synth (fail-open if unsupported). |
 | **Web MIDI out** | Pattern-scheduled notes are forwarded to MIDI outputs (not MIDI-in echoes). Optional MIDI clock API on the out handle. |
 | **Sample packs** | Built-in procedural packs in the samples popover: **`core`** (`vox`, `pad`, `riser`) and **`kit`** (`kick`, `snare`, `hat`, `clap`), with preview + insert. |
+| **Mixer bus faders** | Shared `bus()` send amounts + bus gain appear in the mixer and **edit the code** (same rewrite path as inline widgets). |
+| **Mobile header overflow** | Narrow viewports collapse secondary header actions into an overflow menu. |
 | **Agent → editor sync** | Successful MCP `eval_code` rewrites the CodeMirror buffer to match what’s playing; `get_code` also returns `editorDoc`. |
 | **Jam rooms** | `?room=` live collab via PartyKit + Yjs + `y-codemirror.next` — shared buffer, presence, driver-mode Run, local audio per peer. See [docs/jam.md](docs/jam.md). |
 | **Shared transport** | Driver play/stop + cps with best-effort cycle-aligned start across peers. |
@@ -57,6 +59,7 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **`density` / `hurry`** | Aliases of `fast` (Tidal/Strudel naming). |
 | **`mask` / `inside` / `outside` / `zoom`** | Bool gating, apply-in-sped-up-time, apply-in-slowed-time, cycle-window magnify. |
 | **`binary(n)`** | Boolean rhythm from binary digits (handy with `struct` / `mask`). |
+| **`.echo` / `.ping`** | Tempo-synced musical delay (layered copies); ping-pong stereo taps. |
 
 ### Engine / DSP / analysis
 
@@ -67,7 +70,7 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | **`feedback(fn, time, opts?)`** | Delayed feedback loop combinator (Karplus-style / external echoes). |
 | **Sample `begin` / `end`** | `sample()` auto-wires `begin`/`end` params (0..1) for region play; override with opts. Powers `.striate()`. |
 | **Stereo samples** | Loaded stereo files keep L/R (no host downmix); imaging preserved through gain-only paths (`mul`/`adsr`). |
-| **Shared FX bus** | `defineFx('room', …)` + `send('pad', 'room', 0.35)` — one return rack, many sends. |
+| **Shared send buses** | `bus('space', fx, { pad: 0.4, pluck: 0.25 }, { gain: 0.8 })` — one FX chain, many synths feed; mixer faders rewrite the send literals. |
 | **`truePeak`** | Inter-sample peak in offline analysis. |
 | **`melBands` + `melDistance`** | 32-band log-mel mean spectrum; cosine distance in `compare_renders`. |
 | **Integrated LUFS** | BS.1770-style K-weight + dual gating on `analyze()`; `lufs` in render-tool readings and compare deltas. |
@@ -78,6 +81,8 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | --- | --- |
 | **CI `vite build`** | GitHub Actions builds the app in addition to typecheck + tests. |
 | **Biome lint** | `pnpm lint` + CI lint step (starter rules; intentionally permissive). |
+| **`/llms.txt`** | Docs guide + reference as Markdown for LLMs (also a copy button in the docs UI). |
+| **`scripts/render-code.ts`** | Headlessly bounce curated demo programs to WAV. |
 | **ENHANCEMENTS.md** | Fork backlog / what’s done vs still open. |
 | **Docs / agent-guide** | DSL reference + MCP agent guide updated for editor sync, new combinators, and LUFS/mel analysis. |
 
