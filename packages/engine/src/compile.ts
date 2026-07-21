@@ -97,6 +97,10 @@ export interface CompiledGraph {
   steps: CompiledStep[]
   /** Voice-state buffers, filled by the Voice on noteOn/noteOff. */
   noteFreq: Float32Array
+  /** MIDI note number (0..127-ish), filled with the discrete note — unlike
+   *  noteFreq it does not glide. Useful for wavetable position, sample
+   *  selects, etc. */
+  noteMidi: Float32Array
   gate: Float32Array
   /** Note velocity, 0..1. Available to the graph for TIMBRE only — amplitude
    *  is auto-scaled by velocity in Voice.process(), so consuming this buffer
@@ -123,8 +127,14 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   syncsaw: [{ name: 'freq' }, { name: 'ratio', def: 2 }],
   wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }],
   noise: [],
-  // gate required (retrigger edge); speed optional, 1 = natural pitch.
-  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }],
+  // gate required (retrigger edge); speed optional, 1 = natural pitch;
+  // begin/end optional 0..1 region for striate / chop slicing.
+  sample: [
+    { name: 'gate' },
+    { name: 'speed', def: 1 },
+    { name: 'begin', def: 0 },
+    { name: 'end', def: 1 },
+  ],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   svf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
@@ -152,6 +162,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   const: [],
   param: [],
   notefreq: [],
+  notemidi: [],
   gate: [],
   velocity: [],
   businput: [],
@@ -159,8 +170,8 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
 }
 
 /** Graph node types the compiler maps to kernel instances. Everything else
- *  (const/param/notefreq/gate/velocity/out/pan) is resolved to buffers by the
- *  compiler itself. */
+ *  (const/param/notefreq/notemidi/gate/velocity/out/pan) is resolved to buffers
+ *  by the compiler itself. */
 const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: DspContext) => Kernel>> = {
   sine: () => new SineKernel(),
   saw: () => new SawKernel(),
@@ -293,6 +304,7 @@ interface CompiledCore {
   terminal: NodeSpec | null
   pan: NodeSpec | undefined
   noteFreq: Float32Array
+  noteMidi: Float32Array
   gate: Float32Array
   velocity: Float32Array
   input: Float32Array
@@ -365,6 +377,7 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
 
   // --- buffers --------------------------------------------------------------
   const noteFreq = new Float32Array(BLOCK)
+  const noteMidi = new Float32Array(BLOCK)
   const gate = new Float32Array(BLOCK)
   const velocity = new Float32Array(BLOCK)
   // businput source buffer (post graphs only; voice graphs never reference it).
@@ -397,6 +410,9 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
         break
       case 'notefreq':
         nodeOut.set(n.id, noteFreq)
+        break
+      case 'notemidi':
+        nodeOut.set(n.id, noteMidi)
         break
       case 'gate':
         nodeOut.set(n.id, gate)
@@ -464,7 +480,7 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
     steps.push({ id: n.id, kernel: make(n.config ?? {}, ctx), inputs, out: nodeOut.get(n.id)! })
   }
 
-  return { steps, params, nodeOut, resolve, byId, outNode, terminal, pan, noteFreq, gate, velocity, input }
+  return { steps, params, nodeOut, resolve, byId, outNode, terminal, pan, noteFreq, noteMidi, gate, velocity, input }
 }
 
 /** Compile a validated GraphSpec into a runnable single-voice graph: validate
@@ -491,7 +507,16 @@ export function compileGraph(spec: GraphSpec, ctx: DspContext): CompiledGraph {
     panPos = null
   }
 
-  return { steps: c.steps, noteFreq: c.noteFreq, gate: c.gate, velocity: c.velocity, params: c.params, panIn, panPos }
+  return {
+    steps: c.steps,
+    noteFreq: c.noteFreq,
+    noteMidi: c.noteMidi,
+    gate: c.gate,
+    velocity: c.velocity,
+    params: c.params,
+    panIn,
+    panPos,
+  }
 }
 
 /** Compile a POST graph (per-synth FX chain over the summed voices). Like

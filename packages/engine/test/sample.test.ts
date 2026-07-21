@@ -83,6 +83,19 @@ describe('SampleKernel', () => {
     expect(out.every(Number.isFinite)).toBe(true)
     expect(out).toEqual([1, 0, 0, 2])
   })
+
+  it('begin/end play a region of the buffer', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(8), 48000)
+    const k = new SampleKernel('r', false, bank)
+    const n = 6
+    const gate = new Float32Array(n).fill(1)
+    const begin = new Float32Array(n).fill(0.25) // start at frame 2
+    const end = new Float32Array(n).fill(0.75) // end at frame 6
+    const out = new Float32Array(n)
+    k.process(n, { gate, begin, end }, out, { sampleRate: 48000 })
+    expect([...out]).toEqual([2, 3, 4, 5, 0, 0])
+  })
 })
 
 describe('sample() through synth() + renderOffline', () => {

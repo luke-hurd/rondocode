@@ -1,4 +1,5 @@
 import type { RenderResult } from './render'
+import { integratedLufs } from './analysis-lufs'
 
 /* ------------------------------------------------------------------------- *
  * Audio analysis: turn rendered audio into a compact, READABLE set of
@@ -7,13 +8,12 @@ import type { RenderResult } from './render'
  * "too dark, open the filter" or "clipping, drop the gain" without ever
  * hearing a sample. Every field is documented in musical terms.
  *
- * Scope (v1, deliberate):
- * - Level is plain RMS, not LUFS. K-weighted loudness matters for mastering
- *   across program material; for judging a single synth patch RMS is
- *   equivalent feedback at a fraction of the complexity.
- * - No mel spectrogram yet. v1.1 adds a log-mel summary for MCP patch
- *   comparison ("does A sound like B"); the scalar spectral stats below are
- *   enough for directional feedback on one patch.
+ * Scope:
+ * - Level is plain RMS plus sample peak and a cheap true-peak estimate
+ *   (polyphase-ish: max of abs samples and midpoints between samples).
+ * - Compact log-mel mean vector (`melBands`) for "does A sound like B"
+ *   compares; scalar spectral stats remain for directional feedback.
+ * - Integrated LUFS (BS.1770-style K-weight + dual gating) alongside RMS.
  * - No streaming analysis: analyze() takes a finished offline render. It is
  *   intended to run off the audio thread (worker), so clarity beats
  *   allocation thrift throughout.
@@ -34,6 +34,8 @@ const ATTACK_FLOOR = 1e-4
 const LOW_HZ = 250
 /** Mid/high boundary (Hz): above this is brightness/air ("high"). */
 const HIGH_HZ = 4000
+/** Log-mel band count for the mean energy summary. */
+const MEL_BANDS = 32
 
 export interface Analysis {
   /** Length of the analyzed audio in seconds. */
@@ -42,11 +44,18 @@ export interface Analysis {
   sampleRate: number
   /** Root-mean-square level over both channels, 0..~1. Perceived overall
    *  loudness proxy: ~0.35 is a full-scale sine, ~0.1 a healthy synth line,
-   *  < 0.01 very quiet. (v1 uses RMS, not LUFS — see module doc.) */
+   *  < 0.01 very quiet. Prefer `lufs` for program loudness comparisons. */
   rms: number
+  /** Integrated loudness (LUFS), BS.1770-style K-weight + absolute/relative
+   *  gating. ~−14 is streaming-hot, −20 a moderate synth line, −120 = silent. */
+  lufs: number
   /** Largest absolute sample value across both channels. 1.0 is digital
    *  full scale; headroom = 1 - peak. */
   peak: number
+  /** Inter-sample peak estimate: max of |sample| and |midpoint between
+   *  consecutive samples| on each channel. Catches overs that sample-peak
+   *  misses; still not a full polyphase true-peak meter. */
+  truePeak: number
   /** True when rms < 1e-5: effectively no audio. If a patch renders silent,
    *  check gate wiring and envelope times before anything else. */
   isSilent: boolean
@@ -54,9 +63,14 @@ export interface Analysis {
    *  blew up (divide by zero, runaway feedback). The audio is garbage; fix
    *  the graph, not the mix. */
   hasNaN: boolean
-  /** True when peak > 0.99: the render touches digital full scale and will
-   *  distort on playback. Lower the patch's output gain. */
+  /** True when peak > 0.99 OR truePeak > 1.0: the render touches / exceeds
+   *  digital full scale and will distort on playback. Lower the gain. */
   clipped: boolean
+  /** Mean log-mel energy over non-silent frames, length 32, roughly 0..1
+   *  after per-vector max-normalize. Compare two patches with cosine
+   *  distance on these vectors ("does A sound like B"). Empty/[zeros] if
+   *  silent. */
+  melBands: number[]
   /** 50-point amplitude envelope: max-abs per equal time slice (max, not
    *  mean, so one-sample clicks and transients stay visible). Read it as the
    *  waveform's outline: index 0 = start, 49 = end, values 0..peak. */
@@ -155,10 +169,11 @@ export function analyze(result: RenderResult): Analysis {
     throw new RangeError(`analyze: channels must be non-empty and equal length, got ${n}/${R.length}`)
   }
 
-  // ---- time-domain pass: level, peak, NaN, envelope, correlation ----------
+  // ---- time-domain pass: level, peak, true-peak, NaN, envelope, corr ------
   const envelope = new Array<number>(ENV_POINTS).fill(0)
   let sumSq = 0
   let peak = 0
+  let truePeak = 0
   let peakIdx = 0
   let hasNaN = false
   let sumL = 0
@@ -166,6 +181,8 @@ export function analyze(result: RenderResult): Analysis {
   let sumLL = 0
   let sumRR = 0
   let sumLR = 0
+  let prevL = 0
+  let prevR = 0
   for (let i = 0; i < n; i++) {
     const l = L[i]!
     const r = R[i]!
@@ -179,6 +196,14 @@ export function analyze(result: RenderResult): Analysis {
       peak = amp
       peakIdx = i
     }
+    // Midpoint between consecutive samples ≈ first-order inter-sample peak.
+    if (i > 0) {
+      const mid = Math.max(Math.abs((prevL + l) * 0.5), Math.abs((prevR + r) * 0.5))
+      if (mid > truePeak) truePeak = mid
+    }
+    if (amp > truePeak) truePeak = amp
+    prevL = l
+    prevR = r
     const e = Math.floor((i * ENV_POINTS) / n)
     if (amp > envelope[e]!) envelope[e] = amp
     sumL += l
@@ -236,6 +261,17 @@ export function analyze(result: RenderResult): Analysis {
   let lowE = 0
   let midE = 0
   let highE = 0
+  const melAccum = new Float64Array(MEL_BANDS)
+  // Mel filterbank edges: 0 Hz .. min(nyquist, 8 kHz) in equal-mel steps.
+  const melMaxHz = Math.min(sr / 2, 8000)
+  const hzToMel = (hz: number): number => 2595 * Math.log10(1 + hz / 700)
+  const melToHz = (m: number): number => 700 * (Math.pow(10, m / 2595) - 1)
+  const melLo = hzToMel(0)
+  const melHi = hzToMel(melMaxHz)
+  const melEdges = new Float64Array(MEL_BANDS + 2)
+  for (let i = 0; i < melEdges.length; i++) {
+    melEdges[i] = melToHz(melLo + ((melHi - melLo) * i) / (MEL_BANDS + 1))
+  }
 
   // hop through the signal; a shorter-than-FFT_SIZE render gets one
   // zero-padded frame so tiny snippets still produce spectral numbers.
@@ -272,6 +308,19 @@ export function analyze(result: RenderResult): Analysis {
     }
     if (total <= 0) continue
     frames++
+    // Triangular mel filters over this frame's power spectrum
+    for (let k = 0; k <= nyquistBin; k++) {
+      const p = re[k]! * re[k]! + im[k]! * im[k]!
+      const f = k * binHz
+      for (let b = 0; b < MEL_BANDS; b++) {
+        const left = melEdges[b]!
+        const center = melEdges[b + 1]!
+        const right = melEdges[b + 2]!
+        if (f < left || f > right) continue
+        const w = f < center ? (f - left) / (center - left || 1) : (right - f) / (right - center || 1)
+        melAccum[b]! += p * Math.max(0, w)
+      }
+    }
     centroidSum += weighted / total
     // rolloff: frequency below which 95% of this frame's energy sits
     const target = 0.95 * total
@@ -292,14 +341,33 @@ export function analyze(result: RenderResult): Analysis {
   const lowMidHighRatio: [number, number, number] =
     totalE > 0 ? [lowE / totalE, midE / totalE, highE / totalE] : [0, 0, 0]
 
+  // Mean log-mel, max-normalized to ~0..1 for easy cosine compare.
+  const melBands = new Array<number>(MEL_BANDS).fill(0)
+  if (frames > 0) {
+    let maxLog = 0
+    const logs = new Float64Array(MEL_BANDS)
+    for (let b = 0; b < MEL_BANDS; b++) {
+      logs[b] = Math.log1p(melAccum[b]! / frames)
+      if (logs[b]! > maxLog) maxLog = logs[b]!
+    }
+    if (maxLog > 0) {
+      for (let b = 0; b < MEL_BANDS; b++) melBands[b] = logs[b]! / maxLog
+    }
+  }
+
+  const lufs = isSilent ? -120 : integratedLufs(L, R, sr)
+
   return {
     durationSec: n / sr,
     sampleRate: sr,
     rms,
+    lufs,
     peak,
+    truePeak,
     isSilent,
     hasNaN,
-    clipped: peak > 0.99,
+    clipped: peak > 0.99 || truePeak > 1,
+    melBands,
     envelope,
     attackTimeMs,
     spectralCentroidHz: frames > 0 ? centroidSum / frames : 0,

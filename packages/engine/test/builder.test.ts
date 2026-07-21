@@ -25,6 +25,22 @@ const acid = (): SynthDef =>
 const findByType = (def: SynthDef, type: string): NodeSpec[] =>
   def.graph.nodes.filter((n) => n.type === type)
 
+describe('builder: note.midi', () => {
+  it('exposes a notemidi node and fills it with the MIDI note number', () => {
+    const def = synth(({ note, gate }) => note.midi.mul(gate).mul(1 / 127))
+    expect(findByType(def, 'notemidi')).toHaveLength(1)
+    const pool = new VoicePool(def.graph, ctx, 1)
+    pool.noteOn(64, 1)
+    const L = new Float32Array(BLOCK)
+    const R = new Float32Array(BLOCK)
+    pool.process(L, R, BLOCK)
+    // Output ≈ (64/127) * equal-power center per side (no pan node → CENTER)
+    const expected = (64 / 127) * Math.SQRT1_2
+    expect(L[0]!).toBeCloseTo(expected, 3)
+    expect(R[0]!).toBeCloseTo(expected, 3)
+  })
+})
+
 describe('builder: acid example', () => {
   it('builds, validates, and compiles; params carry through', () => {
     const def = acid()
@@ -383,7 +399,25 @@ describe('builder: every constructor satisfies the compile port table', () => {
   }
 })
 
-// Delay-free feedback cycles are structurally inexpressible in this DSL: a Sig
-// can only reference already-created nodes, so no test for them exists here.
-// Delayed feedback (e.g. Karplus-Strong) needs a dedicated feedback()
-// combinator — deferred to v2. See the note in builder.ts.
+describe('builder: feedback()', () => {
+  it('wires a delay cycle: body → delay.in, returns the tap', () => {
+    const def = synth(({ gate, feedback, onepole }) =>
+      feedback((tap) => gate.add(onepole(tap, 2000).mul(0.5)), 0.015, { maxTime: 0.05 }),
+    )
+    const delays = findByType(def, 'delay')
+    expect(delays).toHaveLength(1)
+    const d = delays[0]!
+    expect(typeof d.inputs.in).toBe('object') // patched to body node, not constant 0
+    // synth() wraps the returned tap in an `out` node
+    const out = def.graph.nodes.find((n) => n.id === def.graph.out)
+    expect(out?.type).toBe('out')
+    expect(out?.inputs.in).toEqual({ node: d.id })
+    expect(() => compileGraph(def.graph, ctx)).not.toThrow()
+  })
+
+  it('rejects a body that is not a Sig from this build', () => {
+    expect(() =>
+      synth(({ feedback }) => feedback(() => 0 as unknown as Sig, 0.01)),
+    ).toThrow(GraphError)
+  })
+})
