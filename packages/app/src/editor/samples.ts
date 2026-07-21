@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view'
-import type { AudioSession } from '../audio/AudioSession'
+import type { AudioSession, SampleInfo } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
@@ -56,6 +56,39 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     close()
   }
 
+  const appendRow = (s: SampleInfo): void => {
+    const wrap = el('div', 'samples-rowwrap')
+    const play = el('button', 'samples-play')
+    play.type = 'button'
+    play.title = `preview ${s.name}`
+    play.append(iconEl('play'))
+    play.addEventListener('click', (e) => {
+      e.stopPropagation()
+      audio.previewSample(s.name)
+    })
+    wrap.append(play)
+    const row = el('button', 'samples-row')
+    row.type = 'button'
+    row.title = `insert sample(gate, '${s.name}')`
+    const name = el('span', 'samples-name', s.name)
+    if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
+    row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
+    row.addEventListener('click', () => insert(s.name))
+    wrap.append(row)
+    if (!s.builtIn) {
+      const rm = el('button', 'samples-rm')
+      rm.type = 'button'
+      rm.title = `remove ${s.name}`
+      rm.append(iconEl('x'))
+      rm.addEventListener('click', (e) => {
+        e.stopPropagation()
+        audio.removeSample(s.name)
+      })
+      wrap.append(rm)
+    }
+    list.append(wrap)
+  }
+
   const render = (): void => {
     const samples = audio.getSamples()
     list.replaceChildren()
@@ -63,37 +96,20 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       list.append(el('div', 'samples-empty', 'no samples loaded yet'))
       return
     }
+    // Group by pack: named packs first (core, kit, …), then user uploads.
+    const order: string[] = []
+    const groups = new Map<string, typeof samples>()
     for (const s of samples) {
-      const wrap = el('div', 'samples-rowwrap')
-      const play = el('button', 'samples-play')
-      play.type = 'button'
-      play.title = `preview ${s.name}`
-      play.append(iconEl('play'))
-      play.addEventListener('click', (e) => {
-        e.stopPropagation()
-        audio.previewSample(s.name)
-      })
-      wrap.append(play)
-      const row = el('button', 'samples-row')
-      row.type = 'button'
-      row.title = `insert sample(gate, '${s.name}')`
-      const name = el('span', 'samples-name', s.name)
-      if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
-      row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
-      row.addEventListener('click', () => insert(s.name))
-      wrap.append(row)
-      if (!s.builtIn) {
-        const rm = el('button', 'samples-rm')
-        rm.type = 'button'
-        rm.title = `remove ${s.name}`
-        rm.append(iconEl('x'))
-        rm.addEventListener('click', (e) => {
-          e.stopPropagation()
-          audio.removeSample(s.name)
-        })
-        wrap.append(rm)
+      const key = s.pack ?? (s.builtIn ? 'built-in' : 'yours')
+      if (!groups.has(key)) {
+        groups.set(key, [])
+        order.push(key)
       }
-      list.append(wrap)
+      groups.get(key)!.push(s)
+    }
+    for (const key of order) {
+      list.append(el('div', 'samples-pack', key))
+      for (const s of groups.get(key)!) appendRow(s)
     }
   }
 

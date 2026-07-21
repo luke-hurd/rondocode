@@ -75,6 +75,100 @@ export function makePad(sampleRate: number): Float32Array {
   return out
 }
 
+/** Procedural 808-ish kick: pitch-swept sine with a short click. */
+export function makeKick(sampleRate: number): Float32Array {
+  const dur = 0.45
+  const n = Math.round(dur * sampleRate)
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const f = 160 * Math.exp(-t * 18) + 45
+    const click = Math.exp(-t * 400) * Math.sin(2 * Math.PI * 2200 * t)
+    const body = Math.sin(2 * Math.PI * f * t)
+    const env = Math.exp(-t * 6)
+    out[i] = (body * 0.9 + click * 0.25) * env
+  }
+  let peak = 0
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.9 / peak
+  return out
+}
+
+/** Snare: mid sine + filtered noise burst. */
+export function makeSnare(sampleRate: number): Float32Array {
+  const dur = 0.28
+  const n = Math.round(dur * sampleRate)
+  const out = new Float32Array(n)
+  let seed = 98765
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return (seed / 0x40000000) - 1
+  }
+  let lp = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const tone = Math.sin(2 * Math.PI * 190 * t) * Math.exp(-t * 22)
+    const noise = rnd()
+    lp += (noise - lp) * 0.35
+    const crack = (noise - lp) * Math.exp(-t * 14)
+    out[i] = tone * 0.45 + crack * 0.7
+  }
+  let peak = 0
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.85 / peak
+  return out
+}
+
+/** Closed hi-hat: short bright noise. */
+export function makeHat(sampleRate: number): Float32Array {
+  const dur = 0.08
+  const n = Math.round(dur * sampleRate)
+  const out = new Float32Array(n)
+  let seed = 424242
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return (seed / 0x40000000) - 1
+  }
+  let hp = 0
+  let prev = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    const x = rnd()
+    hp = 0.97 * (hp + x - prev)
+    prev = x
+    out[i] = hp * Math.exp(-t * 55)
+  }
+  let peak = 0
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.7 / peak
+  return out
+}
+
+/** Clap: staggered noise bursts. */
+export function makeClap(sampleRate: number): Float32Array {
+  const dur = 0.22
+  const n = Math.round(dur * sampleRate)
+  const out = new Float32Array(n)
+  let seed = 13579
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return (seed / 0x40000000) - 1
+  }
+  const bursts = [0, 0.012, 0.024, 0.04]
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate
+    let env = 0
+    for (const b of bursts) {
+      if (t >= b) env = Math.max(env, Math.exp(-(t - b) * 40))
+    }
+    out[i] = rnd() * env
+  }
+  let peak = 0
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.8 / peak
+  return out
+}
+
 /** A ~1.8 s noise uplifter (riser): band-passed white noise whose centre pitch
  *  and amplitude sweep upward — the classic EDM build transition. One-shot it
  *  over a build with sample(gate, 'riser'). */

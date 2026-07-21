@@ -124,6 +124,17 @@ body {
   color: var(--c-dim);
   padding: 0 var(--sp-1) var(--sp-1);
 }
+.samples-pack {
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-accent);
+  padding: var(--sp-2) var(--sp-1) var(--sp-1);
+  opacity: 0.85;
+}
+.samples-pack:first-child {
+  padding-top: 0;
+}
 .samples-empty {
   font-size: var(--fs-ctrl);
   color: var(--c-dim);
@@ -838,6 +849,11 @@ body {
 .lib-new {
   display: flex;
   gap: var(--sp-2);
+}
+
+.lib-mini.recording {
+  color: #e85d4c;
+  font-weight: 600;
 }
 
 .lib-mini {

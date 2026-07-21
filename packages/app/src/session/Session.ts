@@ -30,9 +30,8 @@ import { baseScope } from './scope'
  * - Scheduler wiring: pattern time comes from the audio clock
  *   (currentTimeFrames / sampleRate → monotonic seconds); fired events
  *   become noteOn/noteOff (atFrame = timeSec · sampleRate) plus setParam
- *   for numeric non-transport controls. setParam carries no atFrame in the
- *   v1 protocol, so patterned params apply when the message arrives —
- *   up to one lookahead (~100ms) early; acceptable v1 approximation.
+ *   for numeric non-transport controls (also stamped with atFrame so filter
+ *   automation lands with the note, not one lookahead early).
  *   Events lacking a `sound` or a numeric `note` are skipped silently
  *   (nothing to route — continuous/param-only patterns are normal).
  * - Diagnostics: the Session maintains ONE merged current-diagnostics set
@@ -69,6 +68,11 @@ export interface SessionState {
 
 type SetIntervalImpl = (fn: () => void, ms: number) => unknown
 type ClearIntervalImpl = (handle: unknown) => void
+
+/** Pattern-scheduled MIDI note (not immediate Web MIDI input). */
+export type MidiOutEvent =
+  | { type: 'noteOn'; note: number; velocity: number; timeSec: number }
+  | { type: 'noteOff'; note: number; velocity: number; timeSec: number }
 
 export interface SessionOpts {
   audio: AudioSessionLike
@@ -152,6 +156,9 @@ export class Session {
   private lastGoodSource = ''
   private lastAttemptedSource = ''
   private lastError: string | undefined
+  /** Optional sink for pattern-scheduled notes (Web MIDI out). Not used by
+   *  immediate noteOn/noteOff (MIDI in) — avoids controller echo loops. */
+  private midiOut: ((ev: MidiOutEvent) => void) | undefined
 
   constructor(opts: SessionOpts) {
     if ((opts.setIntervalImpl === undefined) !== (opts.clearIntervalImpl === undefined)) {
@@ -349,6 +356,30 @@ export class Session {
     }, REBUILD_DEBOUNCE_MS)
   }
 
+  /** Immediate noteOn on a live synth (Web MIDI / external triggers).
+   *  Unknown synth → silent warn (same race forgiveness as setChannel).
+   *  Does NOT forward to MIDI out (echo-safe). */
+  noteOn(synth: string, note: number, velocity = 1): void {
+    if (!this.liveSynths.has(synth)) {
+      console.warn(`[session] noteOn: unknown synth '${synth}' (ignored)`)
+      return
+    }
+    const atFrame = Math.round(this.audio.currentTimeFrames)
+    this.audio.send({ kind: 'noteOn', synth, note, velocity, atFrame })
+  }
+
+  /** Immediate noteOff on a live synth. Does NOT forward to MIDI out. */
+  noteOff(synth: string, note: number): void {
+    if (!this.liveSynths.has(synth)) return
+    const atFrame = Math.round(this.audio.currentTimeFrames)
+    this.audio.send({ kind: 'noteOff', synth, note, atFrame })
+  }
+
+  /** Hook for Web MIDI out (pattern-scheduled notes only). Pass undefined to clear. */
+  setMidiOut(fn: ((ev: MidiOutEvent) => void) | undefined): void {
+    this.midiOut = fn
+  }
+
   /** Set a live synth param. `addr` is "synthName.paramName" (split at the
    *  FIRST dot — param names may not contain dots). Throws on a malformed
    *  address: this is programmatic API misuse, not user-code failure. */
@@ -424,6 +455,7 @@ export class Session {
     this.scheduler.stop()
     this.audio.send({ kind: 'allNotesOff' })
     this.audio.onEvent = undefined
+    this.midiOut = undefined
     this.playing = false
     if (this.rebuildTimer !== undefined) clearTimeout(this.rebuildTimer)
     this.rebuildTimer = undefined
@@ -458,10 +490,15 @@ export class Session {
       }
       for (const [key, value] of Object.entries(ev.controls)) {
         if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
-        this.audio.send({ kind: 'setParam', synth: sound, name: key, value })
+        this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
       }
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
       this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame })
+      try {
+        this.midiOut?.({ type: 'noteOn', note, velocity, timeSec: ev.timeSec })
+      } catch {
+        // MIDI out must not break the tick
+      }
       const slide = typeof ev.controls.slide === 'number' && ev.controls.slide > 0
       if (slide) {
         // Defer the release: hold until the NEXT note for this synth arrives
@@ -470,6 +507,16 @@ export class Session {
         // no-op in the engine.
         this.pendingSlide.set(sound, note)
         this.audio.send({ kind: 'noteOff', synth: sound, note, atFrame: atFrame + Math.round(MAX_SLIDE_HOLD_SEC * sr) })
+        try {
+          this.midiOut?.({
+            type: 'noteOff',
+            note,
+            velocity: 0,
+            timeSec: ev.timeSec + MAX_SLIDE_HOLD_SEC,
+          })
+        } catch {
+          /* ignore */
+        }
       } else {
         // Gate gap: shorten the gate slightly so back-to-back events on the
         // SAME note leave a low-gate window between them, so the retriggered
@@ -477,6 +524,11 @@ export class Session {
         // play once and go silent). Legato ties are available via dur > 1.
         const gateSec = Math.max(GATE_GAP_SEC, ev.durSec - GATE_GAP_SEC)
         this.audio.send({ kind: 'noteOff', synth: sound, note, atFrame: Math.round((ev.timeSec + gateSec) * sr) })
+        try {
+          this.midiOut?.({ type: 'noteOff', note, velocity: 0, timeSec: ev.timeSec + gateSec })
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
