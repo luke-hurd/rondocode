@@ -356,6 +356,24 @@ const PATTERN_METHODS: DocEntry[] = [
     'For each event, play the pattern f(value) in its place, keeping the outer event’s rhythm.',
     "mini('2 4').outerBind(k => n('0 3').fast(k))",
   ),
+  pm(
+    'squeezeBind',
+    'squeezeBind(f: (v) => Pattern)',
+    'For each event, play f(value) time-stretched to fit that event’s slot (one inner cycle maps onto the outer whole).',
+    "mini('2 4').squeezeBind(k => n('0 3 5').fast(k))",
+  ),
+  pm(
+    'chop',
+    'chop(n: number)',
+    'Subdivide each event into n equal pieces carrying the same value — a rhythmic chop. For sample region slicing use .striate(n).',
+    "note('c4 e4').chop(4)",
+  ),
+  pm(
+    'striate',
+    'striate(n: number)',
+    'Chop into n slices and set begin/end (0..1) on each so sample() plays successive regions of the buffer (Tidal/Strudel striate). sample() auto-wires begin/end params.',
+    "note('c4').sound('vox').striate(8)",
+  ),
   // controls
   pm(
     'ctrl',
@@ -373,7 +391,7 @@ const PATTERN_METHODS: DocEntry[] = [
   pm(
     'scale',
     "scale(name: string)",
-    "Turn scale degrees (from n()) into actual notes in a scale like 'a minor' or 'f# mixolydian', degrees past the top wrap up an octave.",
+    "Turn scale degrees (from n()) into actual notes in a scale like 'a minor', 'f# mixolydian', 'c blues', or 'd harmonicMinor'; degrees past the top wrap up an octave.",
     "n('0 0 3 5').scale('a minor')",
   ),
   pm('jux', 'jux(f: (p) => p)', 'Stereo split: the original hard left, f(copy) hard right.', '.jux(x => x.rev())'),
@@ -392,7 +410,12 @@ const SYNTH_CTX: DocEntry[] = [
     'The summed voices, inside a post-chain: synth(voiceFn, ({ input, reverb }) => input.mix(reverb(input), 0.3)) processes the whole instrument once, a shared reverb tail, not one per note.',
     'input.mix(reverb(input), 0.3)',
   ),
-  sc('note', 'note: { freq: Sig }', 'The note being played: note.freq is its frequency in Hz, ready to feed an oscillator.', 'saw(note.freq)'),
+  sc(
+    'note',
+    'note: { freq: Sig; midi: Sig }',
+    'The note being played: note.freq is Hz (glides with portamento); note.midi is the discrete MIDI number (does not glide) — handy for wavetable position or selects.',
+    'saw(note.freq).mul(adsr(gate)); /* or */ wavetable(note.freq, note.midi.div(127))',
+  ),
   sc('gate', 'gate: Sig', 'High while the note is held, low after release, the signal envelopes listen to.', 'adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })'),
   sc('velocity', 'velocity: Sig', 'How hard the note was played, 0..1. Amplitude is already auto-scaled by velocity at the voice, so .gain() just works, use this signal for TIMBRE (e.g. brighten the filter); multiplying your output by it double-applies velocity.', 'svf(saw(note.freq), velocity.range(400, 4000))'),
   sc(
@@ -421,9 +444,9 @@ const SYNTH_CTX: DocEntry[] = [
   sc('noise', 'noise()', 'White noise, the raw material of hats, claps and breath.', "svf(noise(), 8000, { mode: 'hp' })"),
   sc(
     'sample',
-    'sample(gate, name, opts?: { root, speed, loop })',
-    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Mono out, shape it with an ADSR like an oscillator. Unknown name → silence.',
-    "sample(gate, 'break', { root: 60 }).mul(adsr(gate, { r: 0.1 }))",
+    'sample(gate, name, opts?: { root, speed, loop, begin, end })',
+    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Auto-wires begin/end params (0..1) for .striate() / .ctrl — override with opts.begin/end. Mono out, shape with an ADSR. Unknown name → silence.',
+    "sample(gate, 'kick').mul(adsr(gate, { r: 0.1 })); /* slice: */ note('c4').sound('vox').striate(8)",
   ),
   sc(
     'granular',
@@ -461,6 +484,12 @@ const SYNTH_CTX: DocEntry[] = [
     'delay(input, time, feedback?, opts?: { maxTime })',
     'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off.',
     'tone.add(delay(tone, 0.28, 0.45))',
+  ),
+  sc(
+    'feedback',
+    'feedback(fn: (tap) => Sig, time, opts?: { maxTime, feedback })',
+    'Delayed feedback loop: fn receives the delay tap, its return is wired back into the delay. Returns the tap. For Karplus-Strong and external echo graphs (distinct from delay’s internal feedback amount).',
+    'feedback((tap) => noise().mul(env).add(onepole(tap, 1800).mul(0.97)), 1 / 220, { maxTime: 0.05 })',
   ),
   sc(
     'reverb',
@@ -532,10 +561,26 @@ const MINI_SYNTAX: DocEntry[] = [
   ms('mini:[]', '[a b]', 'A subgroup: everything inside fits into one step, subdividing it; a comma inside stacks voices.', "note('c2 [e2 g2] c2 [e2, g2]')"),
   ms('mini:<>', '<a b c>', 'Alternation: one entry per cycle, cycling through them, slow harmonic movement in one step.', "note('<e2 e2 d2 g2>')"),
   ms('mini:{}', '{a b c, d e}%n', 'Polymeter: voices of different lengths run at n steps per cycle, drifting against each other.', "note('{c2 e2 g2, c4 g4}%4')"),
-  ms('mini:*', 'a*n', 'Repeat the step n times faster within its slot, "c5*8" is eight hits in the step.', "note('c5*8').sound('hat')"),
-  ms('mini:/', 'a/n', 'Slow the step down by n: it takes n cycles to play once.', "note('c2/2')"),
+  ms(
+    'mini:*',
+    'a*n | a*[n m]',
+    'Speed up within the slot: a number repeats faster ("c5*8"); a pattern factor ("a*[2 3]") squeeze-binds different speeds per sub-slot.',
+    "note('c5*8').sound('hat'); note('c4*[2 3]')",
+  ),
+  ms(
+    'mini:/',
+    'a/n | a/[n m]',
+    'Slow within the slot: a number stretches across cycles; a pattern factor ("a/<2 1>") varies the slowdown per sub-slot.',
+    "note('c2/2'); note('c2/[2 1]')",
+  ),
   ms('mini:!', 'a!n', 'Duplicate the step n times as separate steps ("a!3 b" = "a a a b"); bare ! repeats once more.', "n('0!3 5')"),
   ms('mini:@', 'a@n', 'Weight: give this step n slots’ worth of time ("a@3 b" makes a three times as long as b).', "n('0@3 5')"),
+  ms(
+    'mini:..',
+    'a .. b',
+    'Inclusive integer range: "0 .. 7" expands to "0 1 2 3 4 5 6 7" (descending works too). Integers only, max 128 steps.',
+    "n('0 .. 7').scale('c major')",
+  ),
   ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm inline: spread hits evenly, e.g. bd(3,8) is the tresillo kick.', "sound('bd(3,8)')"),
   ms('mini:?', 'a?p', 'Maybe: drop this step at random (probability p, default 0.5), deterministic per cycle.', "note('c5*8 ?0.3')"),
   ms('mini:|', 'a | b', 'Choice: each cycle picks one alternative at random (deterministic per cycle number).', "n('0 3 5 | 7 5 3')"),

@@ -138,9 +138,30 @@ const renderProgram = (
 
 const isToolResult = (x: ProgramRender | CallToolResult): x is CallToolResult => 'content' in x
 
+/** Cosine distance on mel vectors: 0 = identical direction, 1 = orthogonal.
+ *  Zero vectors → 0 (both silent / empty). */
+const melCosineDistance = (a: number[], b: number[]): number => {
+  const n = Math.min(a.length, b.length)
+  if (n === 0) return 0
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < n; i++) {
+    const x = a[i]!
+    const y = b[i]!
+    dot += x * y
+    na += x * x
+    nb += y * y
+  }
+  if (na === 0 && nb === 0) return 0
+  if (na === 0 || nb === 0) return 1
+  const cos = dot / (Math.sqrt(na) * Math.sqrt(nb))
+  return Math.min(1, Math.max(0, 1 - cos))
+}
+
 /** How to READ an Analysis, shared by all three tool descriptions. */
 const READING =
-  'Reading the analysis: rms = loudness (~0.1 healthy, <0.01 very quiet, isSilent = check gate/envelope wiring); spectralCentroidHz = brightness (up = brighter/opener filter, down = darker); spectralRolloffHz = where the spectrum ends; spectralFlatness = noisy (→1) vs pitched (→0); lowMidHighRatio = tonal balance [<250 Hz, 250-4k, >4k]; clipped/peak = headroom; attackTimeMs = click vs swell; envelope = 50-point amplitude outline.'
+  'Reading the analysis: rms = loudness (~0.1 healthy, <0.01 very quiet, isSilent = check gate/envelope wiring); lufs = integrated loudness in LUFS (BS.1770-style; ~−14 streaming-hot, −20 moderate, −120 silent) — prefer over rms for program loudness; spectralCentroidHz = brightness (up = brighter/opener filter, down = darker); spectralRolloffHz = where the spectrum ends; spectralFlatness = noisy (→1) vs pitched (→0); lowMidHighRatio = tonal balance [<250 Hz, 250-4k, >4k]; peak/truePeak/clipped = headroom (truePeak catches inter-sample overs); melBands = 32-band log-mel mean (compare with melDistance 0=identical, 1=orthogonal); attackTimeMs = click vs swell; envelope = 50-point amplitude outline.'
 
 export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs>): void {
   const d: RenderDirs = {
@@ -249,6 +270,7 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
       const B = b.analysis
       const delta = {
         rms: round(B.rms - A.rms, 4),
+        lufs: round(B.lufs - A.lufs, 2),
         spectralCentroidHz: round(B.spectralCentroidHz - A.spectralCentroidHz, 1),
         spectralRolloffHz: round(B.spectralRolloffHz - A.spectralRolloffHz, 1),
         spectralFlatness: round(B.spectralFlatness - A.spectralFlatness, 4),
@@ -258,7 +280,9 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
           round(B.lowMidHighRatio[2] - A.lowMidHighRatio[2], 4),
         ] as [number, number, number],
         peak: round(B.peak - A.peak, 4),
+        truePeak: round(B.truePeak - A.truePeak, 4),
         stereoWidth: round(B.stereoWidth - A.stereoWidth, 4),
+        melDistance: round(melCosineDistance(A.melBands, B.melBands), 4),
       }
       return ok({ a: A, b: B, delta })
     },

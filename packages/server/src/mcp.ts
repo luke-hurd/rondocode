@@ -108,7 +108,7 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     'get_code',
     {
       description:
-        'Read the program currently in the live rondocode session: `code` is the last source that evaluated successfully (the running program), `lastAttempted` is the last source handed to eval even if it failed. Call this before eval_code — evals replace the whole program, so start from what is already playing.',
+        'Read the program currently in the live rondocode session: `code` is the last source that evaluated successfully (the running program), `lastAttempted` is the last source handed to eval even if it failed, `editorDoc` is the human\'s CodeMirror buffer (should match `code` after a successful eval_code). Call this before eval_code — evals replace the whole program, so start from what is already playing.',
       inputSchema: {},
     },
     () => viaBridge(() => bridge.call('getCode')),
@@ -118,7 +118,7 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     'eval_code',
     {
       description:
-        'Evaluate a COMPLETE rondocode program in the live browser session and return { ok, diagnostics }. The source defines instruments (top-level `const x = synth(ctx => ...)`), registers patterns (`p(\'name\', n(\'0 3 5\').scale(\'a minor\').sound(\'x\'))`), and sets tempo (`setCps(0.5)`) — see the rondocode://docs resources first. Each eval replaces the entire program: anything omitted stops playing. On failure (ok: false) NOTHING changes — the previous program keeps playing and diagnostics carry line/col/message. Known v1 limitation: this evals into the session but does NOT rewrite the human\'s editor text; their editor keeps its own document, and if they press run, their text replaces your program.',
+        'Evaluate a COMPLETE rondocode program in the live browser session and return { ok, diagnostics }. The source defines instruments (top-level `const x = synth(ctx => ...)`), registers patterns (`p(\'name\', n(\'0 3 5\').scale(\'a minor\').sound(\'x\'))`), and sets tempo (`setCps(0.5)`) — see the rondocode://docs resources first. Each eval replaces the entire program: anything omitted stops playing. On failure (ok: false) NOTHING changes — the previous program keeps playing and diagnostics carry line/col/message. On success the human\'s editor buffer is rewritten to match (transport keeps playing). Last-writer-wins if the human is also editing.',
       inputSchema: {
         code: z.string().describe('Full rondocode source to evaluate (a whole program, not a diff)'),
       },
@@ -242,7 +242,7 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     {
       title: 'rondocode agent guide',
       description:
-        'How the system fits together and how to work it: eval semantics (whole-program replacement, last-good-version), the editor-sync limitation, typical workflows, reading diagnostics. Start here.',
+        'How the system fits together and how to work it: eval semantics (whole-program replacement, last-good-version), editor sync on successful eval_code, typical workflows, reading diagnostics. Start here.',
       mimeType: 'text/markdown',
     },
     async (uri) => markdown(uri, await readFile(AGENT_GUIDE_URL, 'utf8')),

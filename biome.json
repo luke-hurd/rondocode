@@ -1,0 +1,31 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
+  "files": {
+    "includes": [
+      "packages/**/*.ts",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.vite",
+      "!**/*.test.ts"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": false,
+      "suspicious": {
+        "noDebugger": "error"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "recommended": false
+      }
+    }
+  }
+}

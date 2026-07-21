@@ -23,9 +23,11 @@
     "dev": "pnpm --filter @rondocode/app dev",
     "bridge": "pnpm --filter @rondocode/server exec tsx src/main.ts",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "node ./node_modules/@biomejs/biome/bin/biome lint packages --error-on-warnings=false"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.0.6",
     "tsx": "^4.23.1",
     "typescript": "^5.5.0",
     "vitest": "^3.2.6"

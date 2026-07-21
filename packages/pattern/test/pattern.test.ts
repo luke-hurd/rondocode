@@ -371,6 +371,37 @@ describe('innerBind / outerBind', () => {
   })
 })
 
+describe('squeezeBind / chop', () => {
+  it('squeezeBind compresses one inner cycle into each outer whole', () => {
+    // Outer: two half-cycle events. Inner: two equal steps → four quarters.
+    const p = fastcat(pure('a'), pure('b')).squeezeBind((v) =>
+      fastcat(pure(v + '1'), pure(v + '2')),
+    )
+    expect(q(p, 0, 1)).toEqual([
+      [0, 0.25, 'a1'],
+      [0.25, 0.5, 'a2'],
+      [0.5, 0.75, 'b1'],
+      [0.75, 1, 'b2'],
+    ])
+  })
+
+  it('chop(n) subdivides each event into n equal pieces', () => {
+    expect(q(fastcat(pure('x'), pure('y')).chop(2), 0, 1)).toEqual([
+      [0, 0.25, 'x'],
+      [0.25, 0.5, 'x'],
+      [0.5, 0.75, 'y'],
+      [0.75, 1, 'y'],
+    ])
+  })
+
+  it('chop(1) is identity; chop rejects non-positive ints', () => {
+    const p = fastcat(pure('a'), pure('b'))
+    expect(q(p.chop(1), 0, 1)).toEqual(q(p, 0, 1))
+    expect(() => p.chop(0)).toThrow(RangeError)
+    expect(() => p.chop(1.5)).toThrow(RangeError)
+  })
+})
+
 describe('withValue / filters / onsetsOnly', () => {
   it('withValue maps values, structure untouched', () => {
     expect(qw(ab.withValue((v) => v.toUpperCase()), 0, 1)).toEqual([

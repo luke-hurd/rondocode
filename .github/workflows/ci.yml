@@ -32,5 +32,11 @@ jobs:
           pnpm --filter @rondocode/app exec tsc --noEmit
           pnpm --filter @rondocode/server exec tsc --noEmit
 
+      - name: Lint
+        run: node ./node_modules/@biomejs/biome/bin/biome lint packages
+
       - name: Test
         run: pnpm test
+
+      - name: Build app
+        run: pnpm --filter @rondocode/app build

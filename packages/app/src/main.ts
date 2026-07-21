@@ -7,6 +7,8 @@ import { mountDocs } from './editor/docspanel'
 import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
 import { BridgeClient } from './session/bridge-client'
+import { startMidiInput } from './midi/input'
+import { startMidiOut } from './midi/out'
 import { applyPalette } from './ui/palette'
 import { mountViz } from './viz/viz'
 
@@ -30,8 +32,19 @@ const startBridge = (editor: EditorHandle): void => {
     typeof p === 'object' && p !== null ? (p as Record<string, unknown>) : {}
   const client = new BridgeClient({
     handlers: {
-      evalCode: (p) => session.evalCode(str(obj(p).source, 'source')),
-      getCode: () => ({ code: session.code, lastAttempted: session.lastAttempted }),
+      evalCode: (p) => {
+        const source = str(obj(p).source, 'source')
+        const result = session.evalCode(source)
+        // On success, rewrite the human's editor so they see what is playing.
+        // Failed evals leave the buffer alone (last-good Session contract).
+        if (result.ok) editor.setDoc(source)
+        return result
+      },
+      getCode: () => ({
+        code: session.code,
+        lastAttempted: session.lastAttempted,
+        editorDoc: editor.getDoc(),
+      }),
       setParam: (p) => {
         const q = obj(p)
         session.setParam(
@@ -81,6 +94,9 @@ AudioSession.start().then(
     mountSynthLib(editor)
     mountShaderViz(app, editor, audio)
     startBridge(editor)
+    // Web MIDI in → first live synth; out mirrors pattern notes (fail-open).
+    startMidiInput(editor.session)
+    startMidiOut(editor.session)
   },
   (e: unknown) => {
     const banner = document.createElement('div')

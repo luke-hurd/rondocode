@@ -45,8 +45,10 @@ export type EngineMessage = (
   | { kind: 'allNotesOff' }
   /** Set a declared synth param. rampMs (default 0 = instant, clamped to
    *  [0, 10000]) ramps the value linearly, applied at block granularity
-   *  (~2.7ms at 48kHz) — params are block-rate in the voice pool. */
-  | { kind: 'setParam'; synth: string; name: string; value: number; rampMs?: number }
+   *  (~2.7ms at 48kHz) — params are block-rate in the voice pool.
+   *  `atFrame` (optional) queues the change on the same sample-accurate
+   *  timeline as noteOn/noteOff; omitted or already past → applies now. */
+  | { kind: 'setParam'; synth: string; name: string; value: number; rampMs?: number; atFrame?: number }
   /** Channel strip: per-synth gain (default 0.8) and pan (default 0.5,
    *  equal-power balance). Changes ramp over one block to avoid zipper.
    *  `sidechain` (0..1, default 1) is how much THIS channel responds to the

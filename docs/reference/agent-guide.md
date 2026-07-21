@@ -58,21 +58,22 @@ you (MCP client) ── stdio ──> mcp server ── ws :6070 ──> browser
 5. Registration is synchronous only: `p()`/`defineSynth()`/`setCps()` called
    from a timer or promise throws.
 
-### Known v1 limitation: your code does not appear in the human's editor
+### Editor sync
 
-`eval_code` evaluates into the live **Session**, but the text in the human's
-editor is a separate document and is *not* rewritten. Consequences:
+On a **successful** `eval_code`, the human's CodeMirror buffer is rewritten to
+match the source you just applied (transport keeps playing — no stop). Failed
+evals leave their editor alone. Consequences:
 
-- The human hears your changes but does not see them in their editor.
-- If the human presses run, **their** text evaluates and replaces your program
-  entirely (whole-program semantics, rule 1 above).
-- `get_code` returns the Session's truth: `code` is the last successfully
-  applied source (possibly yours), `lastAttempted` the last one tried (theirs
-  or yours, even if it failed). Use it to detect that the human has taken over.
+- The human hears *and* sees your changes after a good eval.
+- If they type or press Run with different text, **their** program wins
+  (whole-program semantics, rule 1 above) — last-writer-wins.
+- `get_code` returns Session truth plus `editorDoc` (the buffer). After a
+  successful agent eval they should match; a mismatch means the human edited
+  since, or an eval failed.
 
-Treat the session as shared and last-writer-wins. When collaborating with an
-active human, prefer the non-destructive tools (`set_param`, `set_channel`,
-`transport`) or tell the human what code to paste.
+When collaborating with an active human, prefer non-destructive tools
+(`set_param`, `set_channel`, `transport`) for small tweaks, and full
+`eval_code` when you need a structural change they should see.
 
 ## Typical workflow
 
@@ -102,20 +103,23 @@ is connected, and are **deterministic**: the same code always yields the same
 analysis.
 
 - `render_code {code, cycles?, cps?}` — render a whole program a few cycles and
-  get back `analysis` (rms, peak, `spectralCentroidHz` = brightness,
-  `spectralRolloffHz`, `spectralFlatness` = noisiness, `lowMidHigh` energy
-  split, `stereoWidth`, `clipped`, `attackTimeMs`), `perSynth` event counts and
-  levels, and a `wavPath`.
+  get back `analysis` (rms, **lufs** = integrated loudness in LUFS, peak,
+  `truePeak`, `spectralCentroidHz` = brightness, `spectralRolloffHz`,
+  `spectralFlatness` = noisiness, `lowMidHigh` energy split, `melBands`,
+  `stereoWidth`, `clipped`, `attackTimeMs`), `perSynth` event counts and
+  levels, and a `wavPath`. Prefer `lufs` over `rms` for program loudness
+  (~−14 streaming-hot, −20 moderate, −120 silent).
 - `render_synth {code, synthName?, note?, durationSec?}` — audition one synth on
   a single note. Fast way to dial in a patch.
 - `compare_renders {codeA, codeB, cycles?}` — render two versions and return the
-  **delta** of each analysis field (b − a). This is the "did my change do what I
-  intended?" tool: raise a cutoff and confirm `spectralCentroidHz` went up.
+  **delta** of each analysis field (b − a), including `lufs` and `melDistance`.
+  This is the "did my change do what I intended?" tool: raise a cutoff and
+  confirm `spectralCentroidHz` went up.
 
 **Recommended workflow**: `render_code` (or `render_synth`) to confirm your
-program actually sounds — non-silent rms, sane centroid, not `clipped` — *then*
-`eval_code` to put it live. Reading the analysis is how you iterate on sound
-design when you can't hear the audio yourself.
+program actually sounds — non-silent rms/lufs, sane centroid, not `clipped` —
+*then* `eval_code` to put it live. Reading the analysis is how you iterate on
+sound design when you can't hear the audio yourself.
 
 Note: `wavPath` is a path on the **server's** filesystem (also mirrored to the
 human's listening folder). You cannot fetch its bytes over MCP — it exists so

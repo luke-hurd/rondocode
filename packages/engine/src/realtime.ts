@@ -67,6 +67,8 @@ const MAX_RAMP_MS = 10000
 const HALF_PI = Math.PI / 2
 /** Same-frame ordering: noteOff fires before noteOn (retrigger idiom — see
  *  render.ts's rank comment for the full rationale). */
+/** Params fire before notes at the same frame (filter/automation before onset). */
+const RANK_PARAM = -1
 const RANK_OFF = 0
 const RANK_ON = 1
 
@@ -94,13 +96,9 @@ export const duckReleaseCoeff = (releaseMs: number, sampleRate: number): number 
   return 1 - Math.exp(-1 / ((ms / 1000) * sampleRate))
 }
 
-interface QueuedNote {
-  frame: number
-  rank: number // RANK_OFF | RANK_ON
-  synth: string
-  note: number
-  velocity: number // unused for noteOff
-}
+type QueuedEvent =
+  | { kind: 'note'; frame: number; rank: number; synth: string; note: number; velocity: number }
+  | { kind: 'param'; frame: number; rank: number; synth: string; name: string; value: number; rampMs: number }
 
 interface ParamState {
   min: number
@@ -173,7 +171,7 @@ export class RealtimeEngine {
    *  in process(); rebuilt on define/remove/reap (control plane). */
   private list: Channel[] = []
   /** Future note events, sorted by (frame, rank), consumed via qHead. */
-  private queue: QueuedNote[] = []
+  private queue: QueuedEvent[] = []
   private qHead = 0
   private frames = 0
   /** False until the first FINITE startFrame adopts the host's timeline. */
@@ -502,9 +500,13 @@ export class RealtimeEngine {
     ch.sumSq = ss
   }
 
-  private fire(ev: QueuedNote): void {
+  private fire(ev: QueuedEvent): void {
     const ch = this.byName.get(ev.synth)
     if (!ch) return // removeSynth purges its pending events; purely defensive
+    if (ev.kind === 'param') {
+      this.applyParam(ch, ev.name, ev.value, ev.rampMs, ev.frame)
+      return
+    }
     if (ev.rank === RANK_ON) {
       ch.pool.noteOn(ev.note, ev.velocity)
       // Sidechain trigger, sample-accurate: the walk splits the block at this
@@ -707,7 +709,14 @@ export class RealtimeEngine {
       return this.error(`'atFrame' must be a finite number`, `${what} '${ch.name}'`)
     }
     if (at !== undefined && at > this.frames) {
-      this.enqueue(Math.floor(at), rank, ch.name, note, velocity)
+      this.enqueue({
+        kind: 'note',
+        frame: Math.floor(at),
+        rank,
+        synth: ch.name,
+        note,
+        velocity,
+      })
     } else if (rank === RANK_ON) {
       ch.pool.noteOn(note, velocity)
       // Immediate (unqueued) source noteOn: snap the duck at the next block
@@ -740,13 +749,36 @@ export class RealtimeEngine {
       if (!fin(m['rampMs'])) return this.error(`'rampMs' must be a finite number`, `setParam '${ch.name}'`)
       rampMs = clamp(m['rampMs'], 0, MAX_RAMP_MS)
     }
-    const target = clamp(m['value'], p.min, p.max)
+    const at = m['atFrame']
+    if (at !== undefined && !fin(at)) {
+      return this.error(`'atFrame' must be a finite number`, `setParam '${ch.name}'`)
+    }
+    if (at !== undefined && at > this.frames) {
+      this.enqueue({
+        kind: 'param',
+        frame: Math.floor(at),
+        rank: RANK_PARAM,
+        synth: ch.name,
+        name,
+        value: m['value'],
+        rampMs,
+      })
+      return
+    }
+    this.applyParam(ch, name, m['value'], rampMs, this.frames)
+  }
+
+  /** Apply a setParam immediately (control plane or queued fire). */
+  private applyParam(ch: Channel, name: string, value: number, rampMs: number, atFrame: number): void {
+    const p = ch.params.get(name)
+    if (!p) return
+    const target = clamp(value, p.min, p.max)
     // A new set replaces any in-flight ramp on the same param, starting from
-    // the ramp's current value (evaluated at the present frame).
+    // the ramp's current value (evaluated at the apply frame).
     const ramps = ch.ramps
     for (let i = ramps.length - 1; i >= 0; i--) {
       if (ramps[i]!.name === name) {
-        p.value = rampValue(ramps[i]!, this.frames)
+        p.value = rampValue(ramps[i]!, atFrame)
         ramps[i] = ramps[ramps.length - 1]!
         ramps.pop()
       }
@@ -761,8 +793,8 @@ export class RealtimeEngine {
         param: p,
         from: p.value,
         to: target,
-        startFrame: this.frames,
-        endFrame: this.frames + durFrames,
+        startFrame: atFrame,
+        endFrame: atFrame + durFrames,
       })
     }
   }
@@ -898,7 +930,7 @@ export class RealtimeEngine {
 
   /** Sorted insertion by (frame, rank), stable for equal keys. Runs on the
    *  control plane — the splices are fine here and keep process() scan-free. */
-  private enqueue(frame: number, rank: number, synthName: string, note: number, velocity: number): void {
+  private enqueue(ev: QueuedEvent): void {
     const q = this.queue
     if (this.qHead > 0) {
       q.splice(0, this.qHead) // compact fired entries before measuring size
@@ -927,10 +959,10 @@ export class RealtimeEngine {
     while (lo < hi) {
       const mid = (lo + hi) >> 1
       const e = q[mid]!
-      if (e.frame < frame || (e.frame === frame && e.rank <= rank)) lo = mid + 1
+      if (e.frame < ev.frame || (e.frame === ev.frame && e.rank <= ev.rank)) lo = mid + 1
       else hi = mid
     }
-    q.splice(lo, 0, { frame, rank, synth: synthName, note, velocity })
+    q.splice(lo, 0, ev)
   }
 
   private rebuildList(): void {

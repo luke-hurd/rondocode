@@ -5,7 +5,7 @@ export type NodeType =
   | 'adsr' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
   | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress'
-  | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
+  | 'pan' | 'const' | 'param' | 'notefreq' | 'notemidi' | 'gate' | 'velocity'
   | 'businput' | 'mix' | 'out'
 
 /** number = constant, {node} = another node's output */

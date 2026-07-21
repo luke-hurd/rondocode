@@ -339,6 +339,22 @@ describe('RealtimeEngine: setParam ramps', () => {
     const { L } = walk(eng, 1)
     expect(rms(L)).toBeCloseTo(0.9 * 0.32, 3)
   })
+
+  it('setParam atFrame queues until that sample (not applied early)', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'lvl', levelGraph())
+    send(eng, { kind: 'noteOn', synth: 'lvl', note: 60 })
+    walk(eng, 2)
+    const at = eng.currentFrame + BLOCK * 4 // four blocks in the future
+    send(eng, { kind: 'setParam', synth: 'lvl', name: 'level', value: 0.9, atFrame: at })
+    // Still at the old level for the next 3 blocks
+    const early = walk(eng, 3)
+    expect(rms(early.L)).toBeCloseTo(0.1 * 0.32, 3)
+    // The 4th block includes the queued change
+    const late = walk(eng, 2)
+    expect(rms(late.L, BLOCK, 2 * BLOCK)).toBeCloseTo(0.9 * 0.32, 3)
+    expect(errors(events)).toHaveLength(0)
+  })
 })
 
 describe('RealtimeEngine: channel strips', () => {

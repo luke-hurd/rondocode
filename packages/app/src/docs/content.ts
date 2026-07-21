@@ -153,7 +153,7 @@ p('drums', stack(
     id: 'midi-import',
     title: 'Importing MIDI',
     blocks: [
-      p('A MIDI file can be turned into an editable rondocode example deterministically: the tempo, time signature, note timing and track split come straight from the file, nothing is guessed. Run the importer from the repo: `pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song"`. It picks a synth per track, derives setCps from the tempo, and prints an example you can paste here and edit.'),
+      p('A MIDI file can be turned into an editable rondocode project deterministically: the tempo, time signature, note timing and track split come straight from the file, nothing is guessed. In the app, open the project library and hit **midi** to pick a `.mid` file — it creates a new project with synths, patterns, and setCps ready to edit. From the repo you can still use the CLI: `pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song"`.'),
       p('Imported patterns read like anything else you would write: a held note uses an `@` weight (on a 1/16 grid, `@16` is a whole bar), chords become stacked voice lines, and each track routes to its own synth. This is a small hand-written example in that same shape.'),
       code(
         'The shape of imported code: held notes with @, chords as stacked voices.',

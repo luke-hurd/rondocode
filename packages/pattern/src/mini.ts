@@ -10,7 +10,7 @@ import './combinators'
  * (`"bd(3,8) [sn sn] ~"`), compiled by a hand-written recursive-descent
  * parser into Pattern objects via the existing factories and combinators.
  *
- * Grammar (v1):
+ * Grammar (v1 + pattern-valued speed):
  *
  * ```text
  * pattern  := seq ('|' seq)*                   -- random choice per cycle
@@ -20,8 +20,10 @@ import './combinators'
  *           | '[' pattern (',' pattern)* ']'   -- subgroup; ',' stacks
  *           | '<' term+ '>'                    -- alternation (one per cycle)
  *           | '{' seq (',' seq)* '}' ('%' int)?  -- polymeter
- * mod      := '*' number | '/' number | '!' int? | '@' number
+ * mod      := '*' factor | '/' factor | '!' int? | '@' number
  *           | '(' int ',' int (',' int)? ')' | '?' number?
+ * factor   := number | atom                    -- atom for pattern-valued * /
+ * range    := int '..' int                     -- expands to fastcat of ints
  * ```
  *
  * Decisions pinned by tests (see mini.test.ts):
@@ -34,8 +36,10 @@ import './combinators'
  *   count wins (`a!2!3` = `a!3`).
  * - Bare `!` duplicates once more (`"a! b"` = `"a a b"`, Tidal/Strudel).
  * - `_` elongates the previous step by one slot (`"a _ b"` = `"a@2 b"`).
- * - `*` / `/` factors are positive numbers only in v1; pattern-valued
- *   factors (`"a*[2 3]"`) are deliberately deferred to v2.
+ * - `*` / `/` factors may be a positive number OR a pattern (`"a*[2 3]"`,
+ *   `"a/<2 1>"`): the factor pattern squeeze-binds, stretching one cycle of
+ *   `pat.fast(n)` / `pat.slow(n)` into each factor hap. Non-numeric / ≤0
+ *   factor values become silence for that slot.
  * - `!n` and `?p` consume their number only when it is ADJACENT to the
  *   mod character (`a!3`, `a?0.3`); with whitespace between, the number is
  *   an ordinary atom (`"a! 3"` = three steps a a 3). By contrast the
@@ -55,9 +59,9 @@ import './combinators'
  *   drops everything — never an error.
  * - Empty / whitespace-only source parses to silence.
  *
- * v2 note: `..` ranges (Strudel's `0 .. 7`) would collide with '.' being
- * both a word character and a number start (`.5`); introducing them needs
- * a dedicated '..' lexer rule that wins over word/number continuation.
+ * Ranges: `0 .. 7` / `0..7` expand to inclusive integer sequences
+ * (`0 1 2 3 4 5 6 7`). The lexer emits a dedicated `..` punct token that
+ * wins over `.5` / word continuation. Integers only; span capped at 128.
  */
 
 /** Half-open offset range [start, end) into the original source string. */
@@ -171,6 +175,12 @@ function tokenize(src: string): Tok[] {
       i = j
       continue
     }
+    // Range operator: must win over `.5` (number) and word continuation.
+    if (c === '.' && src[i + 1] === '.') {
+      toks.push({ kind: 'punct', text: '..', value: NaN, start: i, end: i + 2 })
+      i += 2
+      continue
+    }
     const c1 = src[i + 1] ?? ''
     if (
       isDigit(c) ||
@@ -187,7 +197,8 @@ function tokenize(src: string): Tok[] {
       // A second decimal point directly attached (e.g. `1.2.3`, `0.5.5`) is a
       // malformed number, NOT the start of a new atom — otherwise a typo'd
       // decimal would silently ADD a step to the sequence (`0.5.5` → 0.5 0.5).
-      if (src[j] === '.') {
+      // Exception: `..` is the range operator (`0..7`), handled as its own token.
+      if (src[j] === '.' && src[j + 1] !== '.') {
         throw new MiniError('malformed number (extra decimal point)', j, src)
       }
       const text = src.slice(i, j)
@@ -204,6 +215,19 @@ function tokenize(src: string): Tok[] {
   }
   return toks
 }
+
+/** Pattern-valued `*` / `/`: each factor hap squeezes one cycle of
+ *  `pat.fast(n)` / `pat.slow(n)` into its whole. Non-numeric / ≤0 → silence. */
+const speedBy = (
+  pat: Pattern<MiniValue>,
+  factor: Pattern<MiniValue>,
+  speedUp: boolean,
+): Pattern<MiniValue> =>
+  factor.squeezeBind((mv) => {
+    const n = typeof mv.value === 'number' ? mv.value : NaN
+    if (!(n > 0)) return Pattern.silence
+    return speedUp ? pat.fast(n) : pat.slow(n)
+  })
 
 // ------------------------------------------------------------------- parser
 
@@ -235,8 +259,9 @@ class Parser {
     private readonly src: string,
   ) {}
 
-  private peek(): Tok | undefined {
-    return this.toks[this.i]
+  /** Peek with optional lookahead offset (0 = current). */
+  private peek(offset = 0): Tok | undefined {
+    return this.toks[this.i + offset]
   }
 
   private next(): Tok | undefined {
@@ -319,9 +344,12 @@ class Parser {
     return entries
   }
 
-  /** term := atom mod* — returns the pattern plus seq-level weight/reps. */
+  /** Max inclusive integers a single `a .. b` may expand to. */
+  private static readonly RANGE_MAX = 128
+
+  /** term := (range | atom) mod* — returns the pattern plus seq-level weight/reps. */
   private parseTerm(): { pat: Pattern<MiniValue>; weight: number; reps: number } {
-    let pat = this.parseAtom()
+    let pat = this.parseRangeOrAtom()
     let weight = 1
     let reps = 1
     for (;;) {
@@ -330,7 +358,11 @@ class Parser {
       if (t.text === '*' || t.text === '/') {
         this.next()
         const f = this.parseFactor(t.text)
-        pat = t.text === '*' ? pat.fast(f) : pat.slow(f)
+        pat = typeof f === 'number'
+          ? t.text === '*'
+            ? pat.fast(f)
+            : pat.slow(f)
+          : speedBy(pat, f, t.text === '*')
       } else if (t.text === '!') {
         this.next()
         const num = this.peek()
@@ -371,13 +403,16 @@ class Parser {
     return { pat, weight, reps }
   }
 
-  /** Positive number after '*' or '/'. Pattern-valued factors are v2. */
-  private parseFactor(op: string): number {
+  /** Positive number or pattern after '*' / '/'. */
+  private parseFactor(op: string): number | Pattern<MiniValue> {
     const t = this.peek()
-    if (t === undefined || t.kind !== 'number') this.err(`expected a number after '${op}'`)
-    if (!(t.value > 0)) this.err(`factor for '${op}' must be positive`, t.start)
-    this.next()
-    return t.value
+    if (t !== undefined && t.kind === 'number') {
+      if (!(t.value > 0)) this.err(`factor for '${op}' must be positive`, t.start)
+      this.next()
+      return t.value
+    }
+    if (t !== undefined && this.isTermStart(t)) return this.parseAtom()
+    this.err(`expected a number or pattern after '${op}'`)
   }
 
   /** '(' already consumed: int ',' int (',' int)? ')' -> euclid. */
@@ -410,6 +445,44 @@ class Parser {
     const located: Loc = { start: loc.start, end: loc.end, src: this.src }
     this.atoms.push({ value, loc: located })
     return Pattern.pure({ value, loc: located })
+  }
+
+  /** number '..' number → fastcat of inclusive integers; else parseAtom. */
+  private parseRangeOrAtom(): Pattern<MiniValue> {
+    const t = this.peek()
+    if (t !== undefined && t.kind === 'number' && this.isPunct(this.peek(1), '..')) {
+      return this.parseRange(t)
+    }
+    return this.parseAtom()
+  }
+
+  private parseRange(left: Tok): Pattern<MiniValue> {
+    if (!Number.isInteger(left.value)) {
+      this.err(`range endpoints must be integers`, left.start)
+    }
+    this.next() // left
+    const dots = this.next()! // '..'
+    const right = this.peek()
+    if (right === undefined || right.kind !== 'number') {
+      this.err(`expected an integer after '..'`, dots.end)
+    }
+    if (!Number.isInteger(right.value)) {
+      this.err(`range endpoints must be integers`, right.start)
+    }
+    this.next()
+    const a = left.value
+    const b = right.value
+    const step = a <= b ? 1 : -1
+    const count = Math.abs(b - a) + 1
+    if (count > Parser.RANGE_MAX) {
+      this.err(`range expands to ${count} steps (max ${Parser.RANGE_MAX})`, left.start)
+    }
+    const loc: Loc = { start: left.start, end: right.end }
+    const pats: Pattern<MiniValue>[] = []
+    for (let v = a; step > 0 ? v <= b : v >= b; v += step) {
+      pats.push(this.mkAtom(v, loc))
+    }
+    return Pattern.fastcat(...pats)
   }
 
   /** atom := word | number | '~' | '[' ... | '<' ... | '{' ... */

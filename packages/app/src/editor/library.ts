@@ -19,6 +19,8 @@ import { MemoryDb, ProjectStore } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, shareUrl } from '../session/share'
+import { midiToRondocode } from '../midi/import'
+import { exportProgramWav } from '../session/exportWav'
 
 const ACTIVE_KEY = 'rondocode-active-project'
 const SAVE_DEBOUNCE_MS = 600
@@ -265,23 +267,87 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     newRow.append(newBtn, examplePick)
     sheet.append(newRow)
 
-    // export / import a project as a .json file
+    // export / import a project as a .json file; MIDI import; WAV render
     const ioRow = el('div', 'lib-new')
-    const exportBtn = el('button', 'lib-mini', 'export')
-    exportBtn.type = 'button'
-    exportBtn.addEventListener('click', () => {
-      const blob = new Blob([JSON.stringify({ name: current.name, code: current.code }, null, 2)], {
-        type: 'application/json',
-      })
+    const safeName = (): string =>
+      current.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'project'
+    const downloadBlob = (blob: Blob, filename: string): void => {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${current.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'project'}.rondo.json`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
+    }
+    const flashBtn = (btn: HTMLButtonElement, idle: string, msg: string): void => {
+      btn.textContent = msg
+      setTimeout(() => (btn.textContent = idle), 1800)
+    }
+
+    const exportBtn = el('button', 'lib-mini', 'export')
+    exportBtn.type = 'button'
+    exportBtn.title = 'Download project as JSON'
+    exportBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ name: current.name, code: editor.getDoc() }, null, 2)], {
+        type: 'application/json',
+      })
+      downloadBlob(blob, `${safeName()}.rondo.json`)
     })
+
+    const wavBtn = el('button', 'lib-mini', 'wav')
+    wavBtn.type = 'button'
+    wavBtn.title = 'Render 8 cycles to a WAV file'
+    wavBtn.addEventListener('click', () => {
+      const idle = 'wav'
+      try {
+        wavBtn.disabled = true
+        flashBtn(wavBtn, idle, 'rendering…')
+        const result = exportProgramWav(editor.getDoc(), { cycles: 8 })
+        if (!result.ok) {
+          console.warn('[library] wav export failed', result.error)
+          flashBtn(wavBtn, idle, 'failed')
+          return
+        }
+        downloadBlob(new Blob([result.wav.slice()], { type: 'audio/wav' }), `${safeName()}.wav`)
+        flashBtn(wavBtn, idle, 'downloaded ✓')
+      } catch (e) {
+        console.warn('[library] wav export failed', e)
+        flashBtn(wavBtn, idle, 'failed')
+      } finally {
+        wavBtn.disabled = false
+      }
+    })
+
+    // Realtime master-bus record (what's playing), separate from offline wav.
+    const recBtn = el('button', 'lib-mini', 'rec')
+    recBtn.type = 'button'
+    recBtn.title = 'Record the live master bus to a WAV'
+    recBtn.addEventListener('click', () => {
+      const audio = editor.audio
+      if (audio.isRecording) {
+        const wav = audio.stopRecording()
+        recBtn.classList.remove('recording')
+        if (!wav) {
+          flashBtn(recBtn, 'rec', 'empty')
+          return
+        }
+        downloadBlob(new Blob([wav.slice()], { type: 'audio/wav' }), `${safeName()}-live.wav`)
+        flashBtn(recBtn, 'rec', 'saved ✓')
+        return
+      }
+      void audio.resume().then(() => {
+        if (!audio.startRecording()) {
+          flashBtn(recBtn, 'rec', 'unavailable')
+          return
+        }
+        recBtn.textContent = 'stop'
+        recBtn.classList.add('recording')
+      })
+    })
+
     const importBtn = el('button', 'lib-mini', 'import')
     importBtn.type = 'button'
+    importBtn.title = 'Import a .rondo.json project'
     const importInput = el('input') as HTMLInputElement
     importInput.type = 'file'
     importInput.accept = 'application/json,.json'
@@ -306,27 +372,51 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
         }
       })()
     })
+
+    const midiBtn = el('button', 'lib-mini', 'midi')
+    midiBtn.type = 'button'
+    midiBtn.title = 'Import a MIDI file as editable rondocode'
+    const midiInput = el('input') as HTMLInputElement
+    midiInput.type = 'file'
+    midiInput.accept = '.mid,.midi,audio/midi,audio/x-midi'
+    midiInput.hidden = true
+    midiBtn.addEventListener('click', () => midiInput.click())
+    midiInput.addEventListener('change', () => {
+      const f = midiInput.files?.[0]
+      midiInput.value = ''
+      if (!f) return
+      void (async () => {
+        try {
+          const bytes = new Uint8Array(await f.arrayBuffer())
+          const base = f.name.replace(/\.(mid|midi)$/i, '') || 'imported'
+          const { code, summary } = midiToRondocode(bytes, { name: base })
+          const p = await store.createProject(base, code)
+          await switchTo(p)
+          await render()
+          if (summary.length) console.info('[library] midi import', summary.join('; '))
+        } catch (e) {
+          console.warn('[library] midi import failed', e)
+        }
+      })()
+    })
+
     // share: encode the current tune into a link and copy it (no backend)
     const shareBtn = el('button', 'lib-mini', 'share')
     shareBtn.type = 'button'
     shareBtn.addEventListener('click', () => {
       void (async () => {
-        const flash = (msg: string): void => {
-          shareBtn.textContent = msg
-          setTimeout(() => (shareBtn.textContent = 'share'), 1800)
-        }
         try {
           const payload = await encodeShare({ name: current.name, code: editor.getDoc() })
           const url = shareUrl(location.origin, location.pathname, payload)
           await navigator.clipboard.writeText(url)
-          flash('link copied ✓')
+          flashBtn(shareBtn, 'share', 'link copied ✓')
         } catch (e) {
           console.warn('[library] share failed', e)
-          flash('copy failed')
+          flashBtn(shareBtn, 'share', 'copy failed')
         }
       })()
     })
-    ioRow.append(shareBtn, exportBtn, importBtn, importInput)
+    ioRow.append(shareBtn, exportBtn, wavBtn, recBtn, importBtn, importInput, midiBtn, midiInput)
     sheet.append(ioRow)
 
     // project list
