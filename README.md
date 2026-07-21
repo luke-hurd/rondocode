@@ -31,8 +31,8 @@ see [ENHANCEMENTS.md](ENHANCEMENTS.md).
 | Feature | What it does |
 | --- | --- |
 | **In-app MIDI import** | Project library → **midi** — pick a `.mid`, get an editable project (synths, patterns, `setCps`). Same converter as the CLI (`midiToRondocode`). |
-| **Offline WAV export** | Library → **wav** — render the current program offline and download a 16-bit WAV. |
-| **Live master recording** | Library → **rec** / **stop** — capture the master bus to a downloadable WAV (AudioWorklet tap). |
+| **Offline WAV export** | Header **export** → bounce the current program offline to a 16-bit WAV. |
+| **Live master recording** | Header **export** → **rec** / **stop** — capture the master bus to a downloadable WAV. |
 | **Web MIDI in** | Connected controllers trigger `noteOn`/`noteOff` on the first live synth (fail-open if unsupported). |
 | **Web MIDI out** | Pattern-scheduled notes are forwarded to MIDI outputs (not MIDI-in echoes). Optional MIDI clock API on the out handle. |
 | **Sample packs** | Built-in procedural packs in the samples popover: **`core`** (`vox`, `pad`, `riser`) and **`kit`** (`kick`, `snare`, `hat`, `clap`), with preview + insert. |
@@ -100,7 +100,7 @@ pnpm dev    # app on :6060
 | **Transport** | Shared cps + play/stop with a short aligned start across peers. |
 | **Spectator** | `?spectate=1` — read-only projection view. |
 | **Stems / samples** | Optional per-synth mute masks; room can publish `{name,url}` sample packs. |
-| **Saving** | You’re co-writing a **shared score**. Library → **wav** / **rec** bounces that program on *your* machine (same as solo). Local IndexedDB copies and optional Supabase cloud projects are per-user. |
+| **Saving** | You’re co-writing a **shared score**. Header **export** bounces that program on *your* machine (same as solo). Local IndexedDB copies and optional Supabase cloud projects are per-user. |
 | **Accounts** | Optional GitHub OAuth via Supabase (env-gated). Anonymous rooms work with no sign-in. |
 
 Solo / offline still works with zero network — rooms are opt-in. The MCP bridge

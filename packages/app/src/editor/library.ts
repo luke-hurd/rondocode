@@ -13,14 +13,15 @@
  * ------------------------------------------------------------------------- */
 
 import type { EditorHandle } from './editor'
-import { icon } from '../ui/icons'
+import { icon, iconEl } from '../ui/icons'
+import { overlayClosed, overlayOpened } from '../ui/overlays'
+import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, shareUrl } from '../session/share'
 import { midiToRondocode } from '../midi/import'
-import { exportProgramWav } from '../session/exportWav'
 
 const ACTIVE_KEY = 'rondocode-active-project'
 const SAVE_DEBOUNCE_MS = 600
@@ -124,8 +125,12 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- top-bar control -------------------------------------------------------
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
+  projectBtn.setAttribute('aria-expanded', 'false')
   const setLabel = (name: string): void => {
-    projectBtn.textContent = `${name} ▾`
+    // name (ellipsizes) + a fixed chevron, so the affordance survives a long
+    // name; full name in the title since the button truncates.
+    projectBtn.replaceChildren(el('span', 'project-name', name), iconEl('chevron'))
+    tooltip(projectBtn, `${name} (projects, Cmd/Ctrl+P)`)
   }
   setLabel(active.name)
   // place right after the logo
@@ -134,13 +139,23 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- sheet -----------------------------------------------------------------
   const backdrop = el('div', 'sheet-backdrop hidden')
   const sheet = el('aside', 'sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', 'projects')
   backdrop.append(sheet)
   document.body.append(backdrop)
 
-  const closeSheet = (): void => backdrop.classList.add('hidden')
+  const closeSheet = (): void => {
+    backdrop.classList.add('hidden')
+    projectBtn.setAttribute('aria-expanded', 'false')
+    overlayClosed(closeSheet)
+    projectBtn.focus() // restore focus to the trigger
+  }
   const openSheet = (): void => {
-    void render()
+    overlayOpened(closeSheet) // close any other open sheet
     backdrop.classList.remove('hidden')
+    projectBtn.setAttribute('aria-expanded', 'true')
+    void render().then(() => (sheet.querySelector('input, button') as HTMLElement | null)?.focus())
   }
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeSheet()
@@ -235,7 +250,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
 
     // new project + new from example
     const newRow = el('div', 'lib-new')
-    const newBtn = el('button', 'lib-mini', '＋ new')
+    const newBtn = el('button', 'lib-mini', 'new')
     newBtn.type = 'button'
     newBtn.addEventListener('click', () => {
       void (async () => {
@@ -267,23 +282,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     newRow.append(newBtn, examplePick)
     sheet.append(newRow)
 
-    // export / import a project as a .json file; MIDI import; WAV render
+    // export / import a project as a .json file; MIDI import.
+    // WAV bounce/record lives in the header export control (upstream UI).
     const ioRow = el('div', 'lib-new')
-    const safeName = (): string =>
-      current.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'project'
-    const downloadBlob = (blob: Blob, filename: string): void => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-    }
-    const flashBtn = (btn: HTMLButtonElement, idle: string, msg: string): void => {
-      btn.textContent = msg
-      setTimeout(() => (btn.textContent = idle), 1800)
-    }
-
     const exportBtn = el('button', 'lib-mini', 'export')
     exportBtn.type = 'button'
     exportBtn.title = 'Download project as JSON'
@@ -291,58 +292,14 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       const blob = new Blob([JSON.stringify({ name: current.name, code: editor.getDoc() }, null, 2)], {
         type: 'application/json',
       })
-      downloadBlob(blob, `${safeName()}.rondo.json`)
-    })
-
-    const wavBtn = el('button', 'lib-mini', 'wav')
-    wavBtn.type = 'button'
-    wavBtn.title = 'Render 8 cycles to a WAV file'
-    wavBtn.addEventListener('click', () => {
-      const idle = 'wav'
-      try {
-        wavBtn.disabled = true
-        flashBtn(wavBtn, idle, 'rendering…')
-        const result = exportProgramWav(editor.getDoc(), { cycles: 8 })
-        if (!result.ok) {
-          console.warn('[library] wav export failed', result.error)
-          flashBtn(wavBtn, idle, 'failed')
-          return
-        }
-        downloadBlob(new Blob([result.wav.slice()], { type: 'audio/wav' }), `${safeName()}.wav`)
-        flashBtn(wavBtn, idle, 'downloaded ✓')
-      } catch (e) {
-        console.warn('[library] wav export failed', e)
-        flashBtn(wavBtn, idle, 'failed')
-      } finally {
-        wavBtn.disabled = false
-      }
-    })
-
-    // Realtime master-bus record (what's playing), separate from offline wav.
-    const recBtn = el('button', 'lib-mini', 'rec')
-    recBtn.type = 'button'
-    recBtn.title = 'Record the live master bus to a WAV'
-    recBtn.addEventListener('click', () => {
-      const audio = editor.audio
-      if (audio.isRecording) {
-        const wav = audio.stopRecording()
-        recBtn.classList.remove('recording')
-        if (!wav) {
-          flashBtn(recBtn, 'rec', 'empty')
-          return
-        }
-        downloadBlob(new Blob([wav.slice()], { type: 'audio/wav' }), `${safeName()}-live.wav`)
-        flashBtn(recBtn, 'rec', 'saved ✓')
-        return
-      }
-      void audio.resume().then(() => {
-        if (!audio.startRecording()) {
-          flashBtn(recBtn, 'rec', 'unavailable')
-          return
-        }
-        recBtn.textContent = 'stop'
-        recBtn.classList.add('recording')
-      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${current.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'project'}.rondo.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      exportBtn.textContent = 'exported'
+      setTimeout(() => (exportBtn.textContent = 'export'), 1800)
     })
 
     const importBtn = el('button', 'lib-mini', 'import')
@@ -369,6 +326,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
           await render()
         } catch (e) {
           console.warn('[library] import failed', e)
+          importBtn.textContent = 'import failed'
+          setTimeout(() => (importBtn.textContent = 'import'), 1800)
         }
       })()
     })
@@ -405,18 +364,22 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     shareBtn.type = 'button'
     shareBtn.addEventListener('click', () => {
       void (async () => {
+        const flash = (msg: string): void => {
+          shareBtn.textContent = msg
+          setTimeout(() => (shareBtn.textContent = 'share'), 1800)
+        }
         try {
           const payload = await encodeShare({ name: current.name, code: editor.getDoc() })
           const url = shareUrl(location.origin, location.pathname, payload)
           await navigator.clipboard.writeText(url)
-          flashBtn(shareBtn, 'share', 'link copied ✓')
+          flash('link copied')
         } catch (e) {
           console.warn('[library] share failed', e)
-          flashBtn(shareBtn, 'share', 'copy failed')
+          flash('copy failed')
         }
       })()
     })
-    ioRow.append(shareBtn, exportBtn, wavBtn, recBtn, importBtn, importInput, midiBtn, midiInput)
+    ioRow.append(shareBtn, exportBtn, importBtn, importInput, midiBtn, midiInput)
     sheet.append(ioRow)
 
     // project list
@@ -424,7 +387,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     for (const p of projects) {
       const row = el('button', 'lib-row' + (p.id === current.id ? ' active' : ''))
       row.type = 'button'
-      row.append(el('span', 'lib-row-name', p.name))
+      const rowName = el('span', 'lib-row-name', p.name)
+      tooltip(rowName, p.name) // full name; the row ellipsizes
+      row.append(rowName)
       row.append(el('span', 'lib-row-time', ago(p.updatedAt, now)))
       row.addEventListener('click', () => {
         void (async () => {

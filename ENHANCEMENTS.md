@@ -9,7 +9,7 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 ## Highest leverage (suggested order)
 
 1. ~~**In-app MIDI import**~~ — **done** (library sheet → `midi` button).
-2. ~~**WAV / audio export from the app**~~ — **done** (library sheet → `wav` button; shared `exportProgramWav`).
+2. ~~**WAV / audio export from the app**~~ — **done** (header export UI from upstream; shared `exportProgramWav` helper remains).
 3. ~~**Sample-accurate `setParam` (`atFrame`)**~~ — **done** (protocol + engine queue + Session stamps).
 4. ~~**`squeezeBind` + `chop` + `striate`**~~ — **done** (`sample()` auto-wires `begin`/`end`).
 5. ~~**`note.midi` + `feedback()`**~~ — **done**.
@@ -17,7 +17,7 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 7. ~~**Mini pattern-valued `*`/`/` + `..` ranges**~~ — **done**.
 8. ~~**CI `vite build` + Biome lint**~~ — **done** (`pnpm lint` in CI).
 9. ~~**Analysis truePeak + melBands + LUFS**~~ — **done** (BS.1770-style integrated LUFS; `melDistance` / `lufs` in compare_renders).
-10. ~~**In-app live record**~~ — **done** (library `rec` / `stop` → master WAV).
+10. ~~**In-app live record**~~ — **done** (header export → `rec` / `stop` → master WAV; upstream ScriptProcessor tap).
 11. ~~**Web MIDI in + out**~~ — **done** (in → first live synth; out mirrors pattern notes; optional clock).
 12. ~~**Sample packs**~~ — **done** (`core` + procedural `kit` packs in samples browser).
 13. ~~**Jam rooms (Yjs + PartyKit)**~~ — **done** (`?room=`, driver eval, presence, local audio).
