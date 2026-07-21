@@ -3,6 +3,7 @@ import { PreviewPlayer } from '../docs/player'
 import { highlightDsl } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
+import { tooltip } from '../ui/tooltip'
 
 /* ------------------------------------------------------------------------- *
  * Synth library: a shelf of ready-made instruments. Each entry auditions a
@@ -185,7 +186,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
 
   const btn = el('button', 'btn synthlib-btn')
   btn.type = 'button'
-  btn.title = 'synth library'
+  tooltip(btn, 'synth library')
   btn.setAttribute('aria-expanded', 'false')
   btn.innerHTML = `${icon('waveform')}<span class="btn-label">synths</span>`
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar
@@ -253,7 +254,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
       const setIdle = (): void => {
         play.classList.remove('playing')
         play.replaceChildren(iconEl('play'))
-        play.title = 'audition'
+        tooltip(play, 'audition')
       }
       setIdle()
       play.addEventListener('click', () => {
@@ -264,12 +265,12 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
           }
           current?.reset()
           current = null
-          play.title = 'loading…'
+          tooltip(play, 'loading…')
           const res = await player.play(`${sy.code}\n\n${sy.demoTail}`)
           if (res.ok) {
             play.classList.add('playing')
             play.replaceChildren(iconEl('stop'))
-            play.title = 'stop'
+            tooltip(play, 'stop')
             current = { btn: play, reset: setIdle }
           } else {
             setIdle()

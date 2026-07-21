@@ -1,6 +1,7 @@
 import type { EditorHandle } from './editor'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
+import { tooltip } from '../ui/tooltip'
 import { DSL_DOCS } from '../docs/dsl-docs'
 import type { DocEntry } from '../docs/dsl-docs'
 
@@ -36,7 +37,7 @@ export function mountDocs(editor: EditorHandle): DocsHandle {
   const btn = el('button', 'btn docs-btn')
   btn.type = 'button'
   btn.innerHTML = icon('help')
-  btn.title = 'DSL reference'
+  tooltip(btn, 'DSL reference')
   btn.setAttribute('aria-expanded', 'false')
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar
   controls.insertBefore(btn, controls.firstChild)

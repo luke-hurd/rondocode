@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view'
 import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
+import { tooltip } from '../ui/tooltip'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -67,7 +68,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       const wrap = el('div', 'samples-rowwrap')
       const play = el('button', 'samples-play')
       play.type = 'button'
-      play.title = `preview ${s.name}`
+      tooltip(play, `preview ${s.name}`)
       play.append(iconEl('play'))
       play.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -76,9 +77,8 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       wrap.append(play)
       const row = el('button', 'samples-row')
       row.type = 'button'
-      row.title = `insert sample(gate, '${s.name}')`
+      tooltip(row, `insert sample(gate, '${s.name}')`)
       const name = el('span', 'samples-name', s.name)
-      name.title = s.name // full name; the row ellipsizes
       if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
       row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
       row.addEventListener('click', () => insert(s.name))
@@ -86,7 +86,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       if (!s.builtIn) {
         const rm = el('button', 'samples-rm')
         rm.type = 'button'
-        rm.title = `remove ${s.name}`
+        tooltip(rm, `remove ${s.name}`)
         rm.append(iconEl('x'))
         rm.addEventListener('click', (e) => {
           e.stopPropagation()

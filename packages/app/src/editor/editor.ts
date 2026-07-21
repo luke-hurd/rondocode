@@ -27,6 +27,7 @@ import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
+import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { synthTheme } from './theme'
 import { EventFlasher, FLASH_MS, flashExtension } from './flash'
@@ -176,7 +177,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // secondary controls); the title names it, and it opens the samples popover.
   const sampleBtn = el('button', 'btn sample-btn')
   sampleBtn.type = 'button'
-  sampleBtn.title = 'load audio file(s) as samples, then play with sample(gate, "name")'
+  tooltip(sampleBtn, 'load audio file(s) as samples, then play with sample(gate, "name")')
   const sampleLabel = el('span', 'btn-label', 'sample')
   const renderSample = (): void => {
     sampleBtn.replaceChildren(iconEl('plus'), sampleLabel)
@@ -201,13 +202,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   runBtn.type = 'button'
   const runLabel = el('span', 'btn-label', 'run')
   runBtn.replaceChildren(iconEl('play'), runLabel)
-  runBtn.title = 'run (Cmd/Ctrl+Enter)' // icon-only on mobile, so name it for a11y
+  tooltip(runBtn, 'run (Cmd/Ctrl+Enter)') // also sets aria-label (icon-only on mobile)
   const stopBtn = el('button', 'btn stop-btn hidden') // only shown while playing
   stopBtn.type = 'button'
-  stopBtn.title = 'stop'
   stopBtn.replaceChildren(iconEl('stop'))
+  tooltip(stopBtn, 'stop (Cmd/Ctrl+.)')
   const dirtyDot = el('span', 'dirty-dot')
-  dirtyDot.title = 'edited since last run'
+  tooltip(dirtyDot, 'edited since last run')
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
   controls.append(sampleBtn, stopBtn, runBtn)
 
@@ -533,7 +534,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // While playing, Run hot-swaps the current code into the running program
       // rather than starting it — label it "update" (refresh icon) to say so.
       runLabel.textContent = s.playing ? 'update' : 'run'
-      runBtn.title = s.playing ? 'update (Cmd/Ctrl+Enter)' : 'run (Cmd/Ctrl+Enter)'
+      tooltip(runBtn, s.playing ? 'update (Cmd/Ctrl+Enter)' : 'run (Cmd/Ctrl+Enter)')
       const wantIcon = s.playing ? 'refresh' : 'play'
       if (runBtn.dataset.icon !== wantIcon) {
         runBtn.querySelector('svg.ico')?.replaceWith(iconEl(wantIcon))
