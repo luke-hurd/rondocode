@@ -410,7 +410,12 @@ const SYNTH_CTX: DocEntry[] = [
     'The summed voices, inside a post-chain: synth(voiceFn, ({ input, reverb }) => input.mix(reverb(input), 0.3)) processes the whole instrument once, a shared reverb tail, not one per note.',
     'input.mix(reverb(input), 0.3)',
   ),
-  sc('note', 'note: { freq: Sig }', 'The note being played: note.freq is its frequency in Hz, ready to feed an oscillator.', 'saw(note.freq)'),
+  sc(
+    'note',
+    'note: { freq: Sig; midi: Sig }',
+    'The note being played: note.freq is Hz (glides with portamento); note.midi is the discrete MIDI number (does not glide) — handy for wavetable position or selects.',
+    'saw(note.freq).mul(adsr(gate)); /* or */ wavetable(note.freq, note.midi.div(127))',
+  ),
   sc('gate', 'gate: Sig', 'High while the note is held, low after release, the signal envelopes listen to.', 'adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })'),
   sc('velocity', 'velocity: Sig', 'How hard the note was played, 0..1. Amplitude is already auto-scaled by velocity at the voice, so .gain() just works, use this signal for TIMBRE (e.g. brighten the filter); multiplying your output by it double-applies velocity.', 'svf(saw(note.freq), velocity.range(400, 4000))'),
   sc(
@@ -439,9 +444,9 @@ const SYNTH_CTX: DocEntry[] = [
   sc('noise', 'noise()', 'White noise, the raw material of hats, claps and breath.', "svf(noise(), 8000, { mode: 'hp' })"),
   sc(
     'sample',
-    'sample(gate, name, opts?: { root, speed, loop })',
-    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Mono out, shape it with an ADSR like an oscillator. Unknown name → silence.',
-    "sample(gate, 'break', { root: 60 }).mul(adsr(gate, { r: 0.1 }))",
+    'sample(gate, name, opts?: { root, speed, loop, begin, end })',
+    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Auto-wires begin/end params (0..1) for .striate() / .ctrl — override with opts.begin/end. Mono out, shape with an ADSR. Unknown name → silence.',
+    "sample(gate, 'kick').mul(adsr(gate, { r: 0.1 })); /* slice: */ note('c4').sound('vox').striate(8)",
   ),
   sc(
     'granular',
@@ -479,6 +484,12 @@ const SYNTH_CTX: DocEntry[] = [
     'delay(input, time, feedback?, opts?: { maxTime })',
     'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off.',
     'tone.add(delay(tone, 0.28, 0.45))',
+  ),
+  sc(
+    'feedback',
+    'feedback(fn: (tap) => Sig, time, opts?: { maxTime, feedback })',
+    'Delayed feedback loop: fn receives the delay tap, its return is wired back into the delay. Returns the tap. For Karplus-Strong and external echo graphs (distinct from delay’s internal feedback amount).',
+    'feedback((tap) => noise().mul(env).add(onepole(tap, 1800).mul(0.97)), 1 / 220, { maxTime: 0.05 })',
   ),
   sc(
     'reverb',

@@ -70,11 +70,27 @@ describe('analyze: known signals', () => {
     const a = analyze(result(new Float32Array(SR / 2)))
     expect(a.isSilent).toBe(true)
     expect(a.rms).toBe(0)
+    expect(a.lufs).toBe(-120)
     expect(a.peak).toBe(0)
+    expect(a.truePeak).toBe(0)
+    expect(a.melBands.every((v) => v === 0)).toBe(true)
     expect(a.attackTimeMs).toBeNull()
     expect(a.lowMidHighRatio).toEqual([0, 0, 0])
     expect(a.hasNaN).toBe(false)
     expect(a.clipped).toBe(false)
+  })
+
+  it('full-scale sine has integrated LUFS near −3 (0 dBFS sine ≈ −3.01 LUFS)', () => {
+    const a = analyze(result(sine(1000, 1, 1)))
+    expect(a.lufs).toBeGreaterThan(-4)
+    expect(a.lufs).toBeLessThan(-2)
+  })
+
+  it('truePeak >= peak; melBands length 32 and max-normalized', () => {
+    const a = analyze(result(sine(440, 0.5, 0.5)))
+    expect(a.truePeak).toBeGreaterThanOrEqual(a.peak - 1e-9)
+    expect(a.melBands).toHaveLength(32)
+    expect(Math.max(...a.melBands)).toBeCloseTo(1, 5)
   })
 
   it('click at t=2s in 4s: loudest moment and envelope spike located', () => {
