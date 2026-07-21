@@ -25,7 +25,15 @@ import { Session } from '../session/Session'
 import type { SessionState } from '../session/Session'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
-import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
+import {
+  makeVox,
+  makeRiser,
+  makePad,
+  makeKick,
+  makeSnare,
+  makeHat,
+  makeClap,
+} from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
 import { EXAMPLES } from '../examples'
 import { synthTheme } from './theme'
@@ -128,6 +136,8 @@ const toCmDiagnostics = (doc: Text, diags: Diagnostic[]): CmDiagnostic[] => {
 export interface EditorHandle {
   view: EditorView
   session: Session
+  /** Live audio graph (samples, master recording, resume). */
+  audio: AudioSession
   /** The top bar element — extra chrome (viz toggle, project switcher) mounts
    *  here rather than each feature re-querying the DOM. */
   topbar: HTMLElement
@@ -153,6 +163,10 @@ export interface EditorHandle {
    *  stops the transport first — like loading an example — so Run starts the
    *  new program cleanly from cycle 0 rather than hot-swapping mid-cycle. */
   loadCode(code: string): void
+  /** Replace the buffer WITHOUT stopping transport. Used when an agent/MCP
+   *  eval already applied the same source to the Session — keeps the human's
+   *  editor in sync while the tune keeps playing. Marks the doc clean. */
+  setDoc(code: string): void
   /** Fired on every doc change with the new text (the library autosaves the
    *  active project from this). Returns an unsubscribe function. */
   onDoc(fn: (code: string) => void): () => void
@@ -213,12 +227,17 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
 
   topbar.append(logo, fileInput, controls, meter)
 
-  // Default demo samples so `sample()` works out of the box (users add their
+  // Default demo packs so `sample()` works out of the box (users add their
   // own via the button above). Generated PCM fed through the real sample path.
   try {
-    audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
-    audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
-    audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
+    const sr = audio.sampleRate
+    audio.loadSamplePcm('vox', makeVox(sr), sr, true, 'core')
+    audio.loadSamplePcm('riser', makeRiser(sr), sr, true, 'core')
+    audio.loadSamplePcm('pad', makePad(sr), sr, true, 'core')
+    audio.loadSamplePcm('kick', makeKick(sr), sr, true, 'kit')
+    audio.loadSamplePcm('snare', makeSnare(sr), sr, true, 'kit')
+    audio.loadSamplePcm('hat', makeHat(sr), sr, true, 'kit')
+    audio.loadSamplePcm('clap', makeClap(sr), sr, true, 'kit')
   } catch (e) {
     console.warn('[sample] default sample load failed', e)
   }
@@ -594,6 +613,16 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // buffer replaced; press Run to play it from the top
   }
 
+  /** Agent/MCP sync: rewrite the buffer to match a source the Session already
+   *  applied. Does not stop transport. Treats the source as last-good so the
+   *  dirty dot clears (the human's editor now matches what's playing). */
+  const setDoc = (code: string): void => {
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code } })
+    lastAttempted = code
+    lastGood = code
+    updateDirty(code)
+  }
+
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
   const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
@@ -617,6 +646,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   return {
     view,
     session,
+    audio,
     topbar,
     onEngineEvent: subscribeEngine,
     onState: subscribeState,
@@ -624,6 +654,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onVisual: subscribeVisual,
     getDoc: () => view.state.doc.toString(),
     loadCode,
+    setDoc,
     onDoc: (fn) => {
       docListeners.add(fn)
       return () => docListeners.delete(fn)

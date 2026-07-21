@@ -1,5 +1,10 @@
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
+import { encodeWav16 } from '@rondocode/engine'
 import workletUrl from './worklet/processor?worker&url'
+import captureUrl from './worklet/capture?worker&url'
+
+/** Hard cap so a forgotten record can't OOM the tab (~10 min @ 48 kHz stereo). */
+const MAX_RECORD_FRAMES = 48000 * 60 * 10
 
 /* Main-thread side of the audio stack: owns the AudioContext and the
  * AudioWorkletNode hosting RealtimeEngine (see ./processor.ts), and speaks
@@ -20,7 +25,9 @@ export interface SampleInfo {
   name: string
   /** length in frames at `sampleRate` */ frames: number
   sampleRate: number
-  /** true for the demo samples shipped by default (vox/riser/pad) */ builtIn: boolean
+  /** true for the demo samples shipped by default (vox/riser/pad/kit) */ builtIn: boolean
+  /** Pack label for the samples browser (`core`, `kit`, or undefined for user). */
+  pack?: string
 }
 
 export class AudioSession {
@@ -43,6 +50,11 @@ export class AudioSession {
   private readonly _pcm = new Map<string, { data: Float32Array; sampleRate: number }>()
   private _preview: AudioBufferSourceNode | null = null
 
+  private capture: AudioWorkletNode | null = null
+  private recording = false
+  private recChunks: { l: Float32Array; r: Float32Array }[] = []
+  private recFrames = 0
+
   private constructor(
     private readonly context: AudioContext,
     private readonly node: AudioWorkletNode,
@@ -50,6 +62,11 @@ export class AudioSession {
   ) {
     this.analyser = analyser
     node.port.onmessage = (e: MessageEvent) => this.onEvent?.(e.data as EngineEvent)
+  }
+
+  /** True while master-bus PCM capture is armed. */
+  get isRecording(): boolean {
+    return this.recording
   }
 
   /** Create the context + worklet graph. Safe to call at page load: the
@@ -87,13 +104,76 @@ export class AudioSession {
         }
         node.connect(context.destination)
       }
+      // Capture tap (optional): analyser → capture worklet (silent sink).
+      // Fail-open — recording is nicety; audio must keep playing without it.
+      let capture: AudioWorkletNode | null = null
+      if (analyser) {
+        try {
+          await context.audioWorklet.addModule(captureUrl)
+          capture = new AudioWorkletNode(context, 'rondocode-capture', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [2],
+            channelCount: 2,
+          })
+          analyser.connect(capture)
+          // Capture node has no useful output — leave it unconnected.
+        } catch (capErr) {
+          console.warn('[audio] capture worklet failed; recording disabled', capErr)
+          capture = null
+        }
+      }
+      const session = new AudioSession(context, node, analyser)
+      session.capture = capture
+      if (capture) {
+        capture.port.onmessage = (e: MessageEvent) => {
+          if (!session.recording) return
+          const data = e.data as { l?: Float32Array; r?: Float32Array }
+          if (!(data.l instanceof Float32Array) || !(data.r instanceof Float32Array)) return
+          if (session.recFrames + data.l.length > MAX_RECORD_FRAMES) {
+            session.stopRecording() // auto-stop at cap
+            return
+          }
+          session.recChunks.push({ l: data.l, r: data.r })
+          session.recFrames += data.l.length
+        }
+      }
       // Do NOT resume here: at page load there's no user gesture yet. The
       // context stays suspended (silent) until the first Run calls resume().
-      return new AudioSession(context, node, analyser)
+      return session
     } catch (e) {
       context.close().catch(() => {})
       throw e
     }
+  }
+
+  /** Arm master-bus PCM capture. No-op if capture worklet unavailable. */
+  startRecording(): boolean {
+    if (!this.capture) return false
+    this.recChunks = []
+    this.recFrames = 0
+    this.recording = true
+    return true
+  }
+
+  /** Stop capture and return a 16-bit stereo WAV, or null if nothing recorded. */
+  stopRecording(): Uint8Array | null {
+    this.recording = false
+    if (this.recFrames === 0 || this.recChunks.length === 0) {
+      this.recChunks = []
+      return null
+    }
+    const left = new Float32Array(this.recFrames)
+    const right = new Float32Array(this.recFrames)
+    let o = 0
+    for (const c of this.recChunks) {
+      left.set(c.l, o)
+      right.set(c.r, o)
+      o += c.l.length
+    }
+    this.recChunks = []
+    this.recFrames = 0
+    return encodeWav16(left, right, this.context.sampleRate)
   }
 
   send(msg: EngineMessage): void {
@@ -125,8 +205,15 @@ export class AudioSession {
   }
 
   /** Load raw mono PCM directly (e.g. a procedurally generated buffer). Pass
-   *  builtIn:true for the demo samples so the UI can label them. */
-  loadSamplePcm(name: string, data: Float32Array, sampleRate: number, builtIn = false): void {
+   *  builtIn:true for the demo samples so the UI can label them. Optional
+   *  `pack` groups them in the samples browser. */
+  loadSamplePcm(
+    name: string,
+    data: Float32Array,
+    sampleRate: number,
+    builtIn = false,
+    pack?: string,
+  ): void {
     const frames = data.length // read before postMessage transfers the buffer
     const keep = data.slice() // main-thread copy for preview (data is transferred below)
     this.node.port.postMessage(
@@ -134,7 +221,7 @@ export class AudioSession {
       [data.buffer],
     )
     this._pcm.set(name, { data: keep, sampleRate })
-    this.recordSample(name, frames, sampleRate, builtIn)
+    this.recordSample(name, frames, sampleRate, builtIn, pack)
   }
 
   /** Preview a loaded sample through the AudioContext (independent of the
@@ -190,8 +277,15 @@ export class AudioSession {
     this.notifySamples()
   }
 
-  private recordSample(name: string, frames: number, sampleRate: number, builtIn: boolean): void {
+  private recordSample(
+    name: string,
+    frames: number,
+    sampleRate: number,
+    builtIn: boolean,
+    pack?: string,
+  ): void {
     const info: SampleInfo = { name, frames, sampleRate, builtIn }
+    if (pack !== undefined) info.pack = pack
     const i = this._samples.findIndex((s) => s.name === name)
     if (i === -1) this._samples.push(info) // built-ins load first, so stay first
     else this._samples[i] = info // re-loading a name overwrites in place
