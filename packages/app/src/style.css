@@ -256,13 +256,6 @@ body {
   .cps-readout {
     display: none;
   }
-  .sample-btn .btn-label,
-  .synthlib-btn .btn-label {
-    display: none;
-  }
-  .synthlib-btn .synthlib-ico {
-    margin: 0;
-  }
   .hdr-controls {
     gap: var(--sp-1);
     flex: none; /* controls keep their size; the name absorbs the squeeze */
@@ -551,7 +544,7 @@ body {
   align-items: center;
   gap: var(--sp-2);
   min-height: var(--h-ctrl); /* touch target row */
-  margin-top: 4px;
+  margin-top: var(--sp-1);
 }
 
 .mixer-name {
@@ -1156,11 +1149,6 @@ body {
 }
 
 /* --- synth library panel (editor/synthlib.ts) --- */
-
-.synthlib-btn .synthlib-ico {
-  font-size: 16px;
-  line-height: 1;
-}
 .synthlib-btn .btn-label {
   margin-left: 6px;
 }

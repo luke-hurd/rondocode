@@ -172,8 +172,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const topbar = el('header', 'topbar')
   const logo = el('span', 'logo', 'rondocode')
   // sample loader: bring audio files into the engine as sample(gate, 'name').
-  // The "＋" is always shown; " sample" is a collapsible label (hidden on
-  // mobile via CSS, so the button becomes icon-only to keep the header 1 row).
+  // Icon-only in the header (the label is hidden via CSS like the other
+  // secondary controls); the title names it, and it opens the samples popover.
   const sampleBtn = el('button', 'btn sample-btn')
   sampleBtn.type = 'button'
   sampleBtn.title = 'load audio file(s) as samples, then play with sample(gate, "name")'
