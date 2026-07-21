@@ -26,7 +26,7 @@ Priority is a suggestion, not a commitment. Items cite touch points so we can pi
 16. ~~**Stems / sample CDN / spectator**~~ — **done** (mute masks, URL packs, `?spectate=1`).
 17. ~~**More pattern combinators**~~ — **done** (`density`/`hurry`/`mask`/`inside`/`outside`/`zoom`/`binary`).
 18. ~~**Stereo sample preserve**~~ — **done** (L/R through load + SampleKernel; gain-path recovery).
-19. ~~**Shared FX send/return bus**~~ — **done** (`defineFx` / `send` / `fx()`).
+19. ~~**Shared FX send/return bus**~~ — **done** (upstream `bus(...)` + mixer faders; fork `defineFx` retired in favor of Vijay’s API).
 
 ---
 
@@ -60,7 +60,7 @@ Keep existing parity decisions (Strudel midpoint sampling, time-locked randomnes
 | Live-modulatable reverb room/damp | Config-only today | `packages/engine/src/dsp/reverb.ts` |
 | Better sample interpolation | Linear only | `packages/engine/src/dsp/sample.ts` |
 | ~~Stereo sample preserve~~ | **done** — optional `dataR` on loadSample | `AudioSession`, `SampleKernel`, `voice.ts` |
-| ~~Shared FX send / return bus~~ | **done** — `defineFx` / `send` / `fx()` | `realtime.ts`, `evalCode.ts`, `builder.ts` |
+| ~~Shared FX send / return bus~~ | **done** — `bus(name, fx, sends, opts?)` + mixer bus faders | `realtime.ts`, `evalCode.ts`, `editor/buses.ts`, `viz/mixer.ts` |
 | Voice reclaim hysteresis | Documented v1 silence-detection limits | `packages/engine/src/voice.ts` |
 | Protocol acks | Successful messages silent — harder host sync | `protocol.ts` |
 | Momentary / short-term LUFS | Integrated only today | `analysis-lufs.ts` |

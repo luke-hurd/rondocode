@@ -234,9 +234,6 @@ export class RealtimeEngine {
    *  SampleKernels resolve names against it (and see later loads). */
   private readonly samples: SampleBank
 
-  /** Named shared FX return buses (defineFx / setSend). */
-  private readonly fxBuses = new Map<string, FxBus>()
-
   constructor(ctx: DspContext, opts?: { maxSynths?: number }) {
     // Adopt any bank the host supplied on the ctx, else create one and publish
     // it back onto the ctx so voice graphs compiled with this ctx can read it.
@@ -421,24 +418,11 @@ export class RealtimeEngine {
         }
         this.duckLevel = lvl
       }
-      // Clear shared FX send buses for this segment, then accumulate sends
-      // while mixing dry channels, then return wet into the master.
-      for (const fx of this.fxBuses.values()) {
-        fx.busL.fill(0, 0, n)
-        fx.busR.fill(0, 0, n)
-      }
       for (let c = 0; c < list.length; c++) {
         const ch = list[c]!
         // A channel with scAmount 0 opts out entirely (treat as no duck).
         const ducked = duckActive && ch.name !== this.scSource && ch.scAmount > 0 ? this.duck : null
         this.mixChannel(ch, outL, outR, cursor, n, ducked, ch.scAmount)
-      }
-      for (const fx of this.fxBuses.values()) {
-        fx.post.processStereo(fx.busL, fx.busR, n)
-        for (let i = 0; i < n; i++) {
-          outL[cursor + i] = outL[cursor + i]! + fx.busL[i]!
-          outR[cursor + i] = outR[cursor + i]! + fx.busR[i]!
-        }
       }
       cursor = end
     }
@@ -1084,54 +1068,6 @@ export class RealtimeEngine {
   private msgClearMasterComp(): void {
     this.masterComp = undefined
     this.masterCompGr = 0
-  }
-
-  private msgDefineFx(m: Record<string, unknown>): void {
-    const name = m['name']
-    if (typeof name !== 'string' || name.length === 0) {
-      return this.error(`'name' must be a non-empty string`, 'defineFx')
-    }
-    if (!isObj(m['graph'])) {
-      return this.error(`'graph' must be a GraphSpec object`, `defineFx '${name}'`)
-    }
-    try {
-      const post = new PostChain(m['graph'] as unknown as GraphSpec, this.ctx)
-      this.fxBuses.set(name, {
-        name,
-        post,
-        busL: new Float32Array(BLOCK),
-        busR: new Float32Array(BLOCK),
-      })
-    } catch (e) {
-      return this.error(
-        `defineFx '${name}' rejected: ${e instanceof Error ? e.message : String(e)}`,
-        `defineFx '${name}'`,
-      )
-    }
-  }
-
-  private msgRemoveFx(m: Record<string, unknown>): void {
-    const name = m['name']
-    if (typeof name !== 'string' || name.length === 0) {
-      return this.error(`'name' must be a non-empty string`, 'removeFx')
-    }
-    this.fxBuses.delete(name)
-  }
-
-  private msgSetSend(m: Record<string, unknown>): void {
-    const ch = this.lookup(m, 'setSend')
-    if (!ch) return
-    const fx = m['fx']
-    if (typeof fx !== 'string' || fx.length === 0) {
-      return this.error(`'fx' must be a non-empty string`, 'setSend')
-    }
-    const amount = m['amount']
-    if (!fin(amount)) {
-      return this.error(`'amount' must be a finite number`, 'setSend')
-    }
-    const a = clamp(amount as number, 0, 1)
-    if (a <= 0) ch.sends.delete(fx)
-    else ch.sends.set(fx, a)
   }
 
   /** Resolve m['synth'] to a channel; emits an error and returns null when

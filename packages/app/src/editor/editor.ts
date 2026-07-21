@@ -185,6 +185,10 @@ export interface EditorHandle {
   onVisual(fn: (wgsl: string | null, synths: string[]) => void): () => void
   /** Current editor text. */
   getDoc(): string
+  /** Agent/MCP sync: rewrite the buffer to match a source the Session already
+   *  applied. Does not stop transport. Treats the source as last-good so the
+   *  dirty dot clears (the human's editor now matches what's playing). */
+  setDoc(code: string): void
   /** Replace the whole buffer (loading a project or restoring a version):
    *  stops the transport first — like loading an example — so Run starts the
    *  new program cleanly from cycle 0 rather than hot-swapping mid-cycle. */
@@ -713,6 +717,7 @@ export function mountEditor(
     onPatternEvents: subscribePatternEvents,
     onVisual: subscribeVisual,
     getDoc: () => view.state.doc.toString(),
+    setDoc,
     loadCode,
     rewrite: (change, immediate) => {
       view.dispatch({ changes: change })

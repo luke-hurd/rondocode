@@ -94,15 +94,6 @@ export type EngineMessage = (
   | { kind: 'setMasterComp'; threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }
   /** Remove the master glue compressor (no reduction). */
   | { kind: 'clearMasterComp' }
-  /** Define (or replace) a named shared FX return bus. `graph` is a post-style
-   *  GraphSpec (`businput` → effects → out). Channels send into it via setSend;
-   *  the wet output is mixed into the master after all dry channels. */
-  | { kind: 'defineFx'; name: string; graph: GraphSpec }
-  /** Drop a shared FX bus. Active sends to it become no-ops. */
-  | { kind: 'removeFx'; name: string }
-  /** Set how much of `synth`'s post-fader dry (after local post, before strip)
-   *  is sent into FX bus `fx`. amount 0 removes the send. Clamped to [0, 1]. */
-  | { kind: 'setSend'; synth: string; fx: string; amount: number }
 ) & {
   /** Optional correlation id, echoed back on any error event this message
    *  provokes so hosts (MCP bridge, UI) can match failures to requests.

@@ -627,15 +627,6 @@ const returnsOwnSig = (result: unknown, b: Builder): boolean =>
  *  compiled here so errors surface at definition time; a synth with no postFn
  *  has `post` undefined and one with no opts has `voiceOpts` undefined and
  *  behaves exactly as before. */
-/** Build a shared FX return graph (same shape as a synth post chain).
- *  Pass the result to the eval-time `defineFx(name, graph)` staging API, or
- *  use `defineFx(name, fn)` which builds this for you. */
-export function fx(fn: (ctx: PostCtx) => Sig): GraphSpec {
-  return buildGraph(makePostCtx, returnsOwnSig, fn, (g) => {
-    compilePost(g, { sampleRate: 48000 })
-  })
-}
-
 export function synth(voiceFn: (ctx: SynthCtx) => Sig, opts: VoiceOptsInput): SynthDef
 export function synth(
   voiceFn: (ctx: SynthCtx) => Sig,
