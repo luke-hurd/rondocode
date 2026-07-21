@@ -169,6 +169,48 @@ function renderReference(): { section: HTMLElement; search: HTMLInputElement } {
   return { section: wrap, search }
 }
 
+function renderShortcuts(): HTMLElement {
+  const sec = el('section', 'doc-section')
+  sec.id = 'shortcuts'
+  sec.append(el('h2', undefined, 'Keyboard shortcuts'))
+  const rows: [string, string][] = [
+    ['Cmd/Ctrl + Enter', 'run, or update the running program'],
+    ['Cmd/Ctrl + .', 'stop'],
+    ['Cmd/Ctrl + P', 'open the projects menu'],
+    ['Cmd/Ctrl + D', 'add the next occurrence to the selection (multi-cursor)'],
+    ['Alt + drag a number', 'scrub it like a slider'],
+    ['double-click a widget', 'edit its underlying value as text'],
+  ]
+  const list = el('dl', 'kbd-list')
+  for (const [k, d] of rows) {
+    const row = el('div', 'kbd-row')
+    row.append(el('kbd', undefined, k), el('span', undefined, d))
+    list.append(row)
+  }
+  sec.append(list)
+  return sec
+}
+
+function renderFooter(): HTMLElement {
+  const foot = el('footer', 'doc-footer')
+  foot.append(el('span', undefined, 'rondocode'))
+  const link = (text: string, href: string, blank = false): HTMLAnchorElement => {
+    const a = el('a', undefined, text)
+    a.href = href
+    if (blank) {
+      a.target = '_blank'
+      a.rel = 'noopener'
+    }
+    return a
+  }
+  foot.append(
+    link('open the editor', '/'),
+    link('GitHub', 'https://github.com/vijaypemmaraju/rondocode', true),
+    link('MIT license', 'https://github.com/vijaypemmaraju/rondocode/blob/main/LICENSE', true),
+  )
+  return foot
+}
+
 async function build(): Promise<void> {
   // flash pulse duration for the .cm-flash animation (see docs.css)
   document.documentElement.style.setProperty('--flash-ms', `${FLASH_MS}ms`)
@@ -215,11 +257,14 @@ async function build(): Promise<void> {
     addNav(s.id, s.title)
   }
 
-  // reference
+  // reference + shortcuts
   nav.append(el('div', 'nav-group', 'reference'))
   const ref = renderReference()
   main.append(ref.section)
   addNav('reference', 'Reference')
+  main.append(renderShortcuts())
+  addNav('shortcuts', 'Shortcuts')
+  main.append(renderFooter())
 
   // scroll-spy: highlight the nav link for the section in view
   const byId = new Map(navLinks.map((l) => [l.id, l.a]))
