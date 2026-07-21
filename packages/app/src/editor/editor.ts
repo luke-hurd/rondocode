@@ -202,15 +202,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const runLabel = el('span', 'btn-label', 'run')
   runBtn.replaceChildren(iconEl('play'), runLabel)
   runBtn.title = 'run (Cmd/Ctrl+Enter)' // icon-only on mobile, so name it for a11y
-  const stopBtn = el('button', 'btn stop-btn')
+  const stopBtn = el('button', 'btn stop-btn hidden') // only shown while playing
   stopBtn.type = 'button'
   stopBtn.title = 'stop'
   stopBtn.replaceChildren(iconEl('stop'))
   const dirtyDot = el('span', 'dirty-dot')
   dirtyDot.title = 'edited since last run'
-  const cpsEl = el('span', 'cps-readout')
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
-  controls.append(sampleBtn, cpsEl, stopBtn, runBtn)
+  controls.append(sampleBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -529,7 +528,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     audio,
     onDiagnostics: renderDiagnostics,
     onState: (s) => {
-      cpsEl.textContent = `${s.cps} cps`
+      stopBtn.classList.toggle('hidden', !s.playing) // no value when idle
       runBtn.classList.toggle('playing', s.playing)
       // While playing, Run hot-swaps the current code into the running program
       // rather than starting it — label it "update" (refresh icon) to say so.
@@ -579,7 +578,6 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       }
     },
   })
-  cpsEl.textContent = `${session.getState().cps} cps`
 
   // ---- controls ------------------------------------------------------
   runBtn.addEventListener('click', () => run())

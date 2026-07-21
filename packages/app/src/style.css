@@ -31,6 +31,9 @@
 
   /* the single touch-target height for every interactive control */
   --h-ctrl: 44px;
+
+  /* subtle desaturated film-grain, replaces the old graticule grid (signature) */
+  --noise: url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.1'/%3E%3C/svg%3E");
 }
 
 * {
@@ -68,11 +71,9 @@ body {
   gap: var(--sp-2);
   padding: var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-right)) var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-left));
   padding-top: calc(var(--sp-2) + env(safe-area-inset-top));
-  /* scope graticule: a faint measurement grid over the bezel (signature) */
-  background:
-    repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
-    repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
-    var(--c-bar);
+  /* subtle film-grain over the bar (signature) */
+  background: var(--noise), var(--c-bar);
+  background-size: 200px 200px, auto;
   border-bottom: 1px solid var(--c-border);
 }
 
@@ -251,9 +252,6 @@ body {
     gap: var(--sp-1);
   }
   .logo {
-    display: none;
-  }
-  .cps-readout {
     display: none;
   }
   .hdr-controls {
@@ -505,10 +503,8 @@ body {
   flex: none;
   padding: var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-right)) calc(var(--sp-2) + env(safe-area-inset-bottom))
     calc(var(--sp-3) + env(safe-area-inset-left));
-  background:
-    repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
-    repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
-    var(--c-bar);
+  background: var(--noise), var(--c-bar);
+  background-size: 200px 200px, auto;
   border-top: 1px solid var(--c-border);
 }
 
@@ -688,12 +684,14 @@ body {
 .stop-btn {
   min-width: var(--h-ctrl);
   padding: 0 var(--sp-3);
-  color: var(--c-dim);
-}
-
-.stop-btn:active {
   color: var(--c-error);
   border-color: var(--c-error-border);
+}
+.stop-btn.hidden {
+  display: none;
+}
+.stop-btn:active {
+  background: var(--c-error-bg);
 }
 
 /* Dirty indicator: doc differs from the last run — a dot on the Run button. */
@@ -713,13 +711,6 @@ body {
   opacity: 1;
 }
 
-.cps-readout {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: var(--fs-meta);
-  color: var(--c-dim);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 
 /* --- boot error (audio graph failed to build) --- */
 
