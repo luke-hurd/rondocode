@@ -205,12 +205,15 @@ setCps(1)
     const delta = asJson(r)['delta'] as Record<string, unknown>
     expect(delta).toEqual({
       rms: 0,
+      lufs: 0,
       spectralCentroidHz: 0,
       spectralRolloffHz: 0,
       spectralFlatness: 0,
       lowMidHigh: [0, 0, 0],
       peak: 0,
+      truePeak: 0,
       stereoWidth: 0,
+      melDistance: 0,
     })
   }, 60_000)
 

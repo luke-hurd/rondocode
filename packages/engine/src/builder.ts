@@ -12,9 +12,8 @@ import type { VoiceOpts } from './voice'
  * so malformed graphs fail at definition time, not at play time.
  *
  * Design decisions (v1):
- * - `note` exposes only `freq`. There is no notemidi NodeType, so a midi Sig
- *   would need a fake backing value — omitted (YAGNI; freq covers the design
- *   examples).
+ * - `note` exposes `freq` (Hz, glides with portamento) and `midi` (discrete
+ *   MIDI note number — does not glide).
  * - Numbers passed as SigIn become constant InputSources directly, NOT const
  *   nodes — compile.ts pools identical constants into shared buffers.
  * - param() default bounds when opts.min/max are omitted: min = 0,
@@ -25,10 +24,12 @@ import type { VoiceOpts } from './voice'
  * - delay() defaults maxTime to 0.5 s (per-voice delays are for short
  *   feedback-loop synthesis; echo-scale delays belong in the future
  *   post-chain, see compile.ts header).
- * - Feedback: the DSL is structurally acyclic — a Sig can only reference an
- *   already-created node, so a delay-free cycle is inexpressible. Delayed
- *   feedback loops (Karplus-Strong etc.) need a dedicated feedback()
- *   combinator, deferred to v2.
+ * - Delay-free cycles are structurally inexpressible (a Sig can only
+ *   reference already-created nodes). Delayed loops use feedback(fn, time):
+ *   a delay is created first, fn receives its output (tap), and fn's return
+ *   is patched into delay.in — validateGraph already allows cycles through
+ *   delay.in. Distinct from delay(..., feedback) which is internal kernel
+ *   recirculation. External loops add ~BLOCK (128) samples of latency.
  * - Sigs are scoped to their synth() build: using a Sig (as an argument or
  *   via its methods) outside the build that created it throws GraphError.
  * ------------------------------------------------------------------------- */
@@ -55,8 +56,8 @@ export interface Sig {
 }
 
 export interface SynthCtx {
-  /** Per-note voice state. midi is deliberately absent in v1 (see header). */
-  note: { freq: Sig }
+  /** Per-note voice state: freq (Hz, glides) and midi (discrete note number). */
+  note: { freq: Sig; midi: Sig }
   gate: Sig
   /** How hard the note was played, 0..1. AMPLITUDE is already auto-scaled by
    *  velocity at the voice — a pattern's .gain() affects loudness without any
@@ -86,9 +87,14 @@ export interface SynthCtx {
    *  `{ loop: true }` to loop. Pitch: `{ root }` plays at natural pitch when the
    *  note equals that MIDI root and tracks the note otherwise; `{ speed }` sets
    *  an explicit rate multiplier (overrides root). No root/speed → natural rate
-   *  (drums). Output is mono — shape amplitude with an ADSR like an oscillator.
-   *  Unknown/not-yet-loaded name → silence. */
-  sample(gate: SigIn, name: string, opts?: { root?: number; speed?: SigIn; loop?: boolean }): Sig
+   *  (drums). Region: auto-wires `begin`/`end` params (0..1) for `.striate()` /
+   *  `.ctrl('begin'|'end', …)`; override with `{ begin, end }` Sigs. Output is
+   *  mono — shape amplitude with an ADSR like an oscillator. Unknown name → silence. */
+  sample(
+    gate: SigIn,
+    name: string,
+    opts?: { root?: number; speed?: SigIn; loop?: boolean; begin?: SigIn; end?: SigIn },
+  ): Sig
   /** GRANULAR synthesis over a loaded sample: sprays short windowed grains from
    *  a scannable position, pitched independently. Grains spawn while `gate` is
    *  high. `pos` (0..1) is the read centre — freeze it for a drone, sweep it to
@@ -103,6 +109,13 @@ export interface SynthCtx {
   adsr(gate: SigIn, opts?: { a?: number; d?: number; s?: number; r?: number }): Sig
   lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
+  /** Delayed feedback loop: `fn` receives the delay tap; its return is wired
+   *  into the delay input. Returns the tap. Karplus-Strong / external echoes. */
+  feedback(
+    fn: (tap: Sig) => Sig,
+    time: SigIn,
+    opts?: { maxTime?: number; feedback?: SigIn },
+  ): Sig
   /** Freeverb-style algorithmic reverb. Output is WET only — mix it back with
    *  the dry signal (e.g. `tone.mix(reverb(tone), 0.3)`). roomSize/damp are
    *  0..1 and are fixed at build time (not per-sample). */
@@ -142,6 +155,12 @@ export interface PostCtx {
   onepole(inp: SigIn, cutoff: SigIn): Sig
   lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
+  /** Delayed feedback loop (same as SynthCtx.feedback). */
+  feedback(
+    fn: (tap: Sig) => Sig,
+    time: SigIn,
+    opts?: { maxTime?: number; feedback?: SigIn },
+  ): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
   chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
@@ -383,6 +402,32 @@ const makeShared = (b: Builder) => {
       if (feedback !== undefined) inputs['feedback'] = src(feedback, 'delay feedback')
       return b.node('delay', inputs, { maxTime: opts?.maxTime ?? 0.5 })
     },
+    /** Create a delay, pass its output to `fn`, patch `fn`'s return into
+     *  delay.in (legal cycle), return the tap. */
+    feedback: (
+      fn: (tap: Sig) => Sig,
+      time: SigIn,
+      opts?: { maxTime?: number; feedback?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = {
+        in: 0, // placeholder — patched after fn runs
+        time: src(time, 'feedback time'),
+      }
+      if (opts?.feedback !== undefined) {
+        inputs['feedback'] = src(opts.feedback, 'feedback amount')
+      }
+      const tap = b.node('delay', inputs, { maxTime: opts?.maxTime ?? 0.5 })
+      const body = fn(tap)
+      if (!(body instanceof SigImpl) || body.builder !== b) {
+        throw new GraphError('feedback() body must return a Sig from this synth()')
+      }
+      const delayNode = b.nodes[tap.id]
+      if (delayNode === undefined || delayNode.type !== 'delay') {
+        throw new GraphError('feedback(): internal error — delay node missing')
+      }
+      delayNode.inputs.in = { node: body.id }
+      return tap
+    },
     reverb: (inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig =>
       b.node(
         'reverb',
@@ -444,8 +489,9 @@ const makeCtx = (b: Builder): SynthCtx => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   const shared = makeShared(b)
   const noteFreq = b.node('notefreq', {})
+  const noteMidi = b.node('notemidi', {})
   return {
-    note: { freq: noteFreq },
+    note: { freq: noteFreq, midi: noteMidi },
     gate: b.node('gate', {}),
     velocity: b.node('velocity', {}),
 
@@ -455,6 +501,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     onepole: shared.onepole,
     lfo: shared.lfo,
     delay: shared.delay,
+    feedback: shared.feedback,
     reverb: shared.reverb,
     chorus: shared.chorus,
     comb: shared.comb,
@@ -494,6 +541,18 @@ const makeCtx = (b: Builder): SynthCtx => {
         speed = noteFreq.div(rootFreq)
       }
       if (speed !== undefined) inputs['speed'] = src(speed, 'sample speed')
+      // Region: reuse-or-declare begin/end params so .striate() / .ctrl just work
+      // across multiple sample() calls in one synth without duplicate-param errors.
+      const ensureUnitParam = (pname: string, def: number): Sig => {
+        if (!b.params.some((p) => p.name === pname)) {
+          shared.param(pname, def, { min: 0, max: 1 })
+        }
+        return b.node('param', {}, { name: pname })
+      }
+      const begin = opts?.begin ?? ensureUnitParam('begin', 0)
+      const end = opts?.end ?? ensureUnitParam('end', 1)
+      inputs['begin'] = src(begin, 'sample begin')
+      inputs['end'] = src(end, 'sample end')
       return b.node('sample', inputs, definedConfig({ name, loop: opts?.loop }))
     },
 
