@@ -188,6 +188,13 @@ declare module './pattern' {
     /** ctrl('res', x): filter resonance synth param. */
     res(this: Pattern<ControlMap>, x: ControlValue): Pattern<ControlMap>
     /**
+     * Chop into `n` slices and set `begin`/`end` (0..1) on each so a
+     * `sample()` voice plays successive regions (Tidal/Strudel `striate`).
+     * The synth's `sample()` auto-wires `begin`/`end` params — no extra
+     * `param()` needed. n <= 1 sets begin=0,end=1; n must be a positive int.
+     */
+    striate(this: Pattern<ControlMap>, n: number): Pattern<ControlMap>
+    /**
      * Resolve scale degrees to absolute pitch: every event with an `n`
      * gets `note = root + scaleDegree(intervals, round(n))`; `n` is kept.
      * Events without `n` pass through untouched. Scale names are
@@ -261,6 +268,25 @@ Pattern.prototype.dur = ctrlAlias('dur')
 Pattern.prototype.slide = ctrlAlias('slide')
 Pattern.prototype.cutoff = ctrlAlias('cutoff')
 Pattern.prototype.res = ctrlAlias('res')
+
+Pattern.prototype.striate = function (
+  this: Pattern<ControlMap>,
+  n: number,
+): Pattern<ControlMap> {
+  if (!Number.isInteger(n) || n < 1) {
+    throw new RangeError(`striate requires a positive integer, got ${n}`)
+  }
+  if (n === 1) {
+    return this.ctrl('begin', 0).ctrl('end', 1)
+  }
+  return this.squeezeBind((v) =>
+    Pattern.fastcat(
+      ...Array.from({ length: n }, (_, i) =>
+        Pattern.pure({ ...v, begin: i / n, end: (i + 1) / n }),
+      ),
+    ),
+  )
+}
 
 Pattern.prototype.scale = function (
   this: Pattern<ControlMap>,

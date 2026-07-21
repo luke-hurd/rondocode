@@ -290,9 +290,70 @@ export class Pattern<T> {
     return this.bindWhole((outer) => outer, f)
   }
 
-  // NOTE: squeezeBind (each inner pattern compressed into its outer hap's
-  // whole — the basis of `squeeze`/`chop`) is deliberately not implemented
-  // yet; it arrives with the task that needs it.
+  /**
+   * Squeeze-bind: for each outer hap, play `f(value)` time-stretched to fit
+   * that hap's whole (one cycle of the inner pattern maps onto the whole).
+   * Structure comes from the inner pattern; the outer whole is the window.
+   * Continuous outer haps (no whole) pass through as a single sample of
+   * `f(value)` at time 0. Basis of {@link Pattern.chop}.
+   */
+  squeezeBind<U>(f: (v: T) => Pattern<U>): Pattern<U> {
+    return new Pattern((span) => {
+      const out: Hap<U>[] = []
+      for (const outer of this.query(span)) {
+        const whole = outer.whole
+        if (whole === undefined) {
+          // Continuous: sample the inner pattern at the origin and stamp the
+          // outer part (mirrors how continuous haps pass through ply/roll).
+          for (const inner of f(outer.value).query(new TimeSpan(Fraction.ZERO, Fraction.ZERO))) {
+            out.push(hap(undefined, outer.part, inner.value))
+          }
+          continue
+        }
+        const dur = whole.length
+        if (dur.eq(Fraction.ZERO)) {
+          for (const inner of f(outer.value).query(new TimeSpan(Fraction.ZERO, Fraction.ZERO))) {
+            const part = outer.part
+            out.push(hap(whole, part, inner.value))
+          }
+          continue
+        }
+        const toInner = (t: Fraction): Fraction => t.sub(whole.begin).div(dur)
+        const toOuter = (t: Fraction): Fraction => whole.begin.add(t.mul(dur))
+        const qBegin = toInner(outer.part.begin)
+        const qEnd = toInner(outer.part.end)
+        if (qBegin.gt(qEnd)) continue
+        for (const inner of f(outer.value).query(new TimeSpan(qBegin, qEnd))) {
+          const part = new TimeSpan(toOuter(inner.part.begin), toOuter(inner.part.end)).intersection(
+            outer.part,
+          )
+          if (part === undefined) continue
+          const w =
+            inner.whole === undefined
+              ? undefined
+              : new TimeSpan(toOuter(inner.whole.begin), toOuter(inner.whole.end))
+          out.push(hap(w, part, inner.value))
+        }
+      }
+      return out
+    })
+  }
+
+  /**
+   * Subdivide each event into `n` equal pieces carrying the same value
+   * (Tidal/Strudel rhythmic `chop`). Pair with {@link Pattern.striate} (on
+   * control patterns) for sample begin/end slicing. Built on
+   * {@link Pattern.squeezeBind}. n <= 1 is identity; n must be a positive int.
+   */
+  chop(n: number): Pattern<T> {
+    if (!Number.isInteger(n) || n < 1) {
+      throw new RangeError(`chop requires a positive integer, got ${n}`)
+    }
+    if (n === 1) return this
+    return this.squeezeBind((v) =>
+      Pattern.fastcat(...Array.from({ length: n }, () => Pattern.pure(v))),
+    )
+  }
 
   // ------------------------------------------------------------- helpers
 

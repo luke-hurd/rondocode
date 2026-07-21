@@ -29,6 +29,17 @@ export const SCALES: Record<string, readonly number[]> = {
   locrian: [0, 1, 3, 5, 6, 8, 10],
   pentatonic: [0, 2, 4, 7, 9],
   minorPentatonic: [0, 3, 5, 7, 10],
+  /** Major blues: major penta + ♭3 blue note. */
+  majorBlues: [0, 2, 3, 4, 7, 9],
+  /** Minor blues: minor penta + ♭5 blue note. */
+  blues: [0, 3, 5, 6, 7, 10],
+  wholeTone: [0, 2, 4, 6, 8, 10],
+  diminished: [0, 2, 3, 5, 6, 8, 9, 11],
+  augmented: [0, 3, 4, 7, 8, 11],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  hungarianMinor: [0, 2, 3, 6, 7, 8, 11],
+  enigmatic: [0, 1, 4, 6, 8, 10, 11],
   chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 }
 

@@ -125,12 +125,74 @@ describe('mini: alternation <>', () => {
   })
 })
 
+describe('mini: ranges', () => {
+  it('"0 .. 7" expands to eight equal steps', () => {
+    expect(q(mini('0 .. 7'), 0, 1)).toEqual([
+      [0, 1 / 8, 0],
+      [1 / 8, 2 / 8, 1],
+      [2 / 8, 3 / 8, 2],
+      [3 / 8, 4 / 8, 3],
+      [4 / 8, 5 / 8, 4],
+      [5 / 8, 6 / 8, 5],
+      [6 / 8, 7 / 8, 6],
+      [7 / 8, 1, 7],
+    ])
+  })
+
+  it('"0..7" without spaces works; descending and singleton too', () => {
+    expect(q(mini('0..3'), 0, 1).map((h) => h[2])).toEqual([0, 1, 2, 3])
+    expect(q(mini('3 .. 1'), 0, 1).map((h) => h[2])).toEqual([3, 2, 1])
+    expect(q(mini('5 .. 5'), 0, 1)).toEqual([[0, 1, 5]])
+  })
+
+  it('range mods apply to the whole expansion; .5 and words stay intact', () => {
+    expect(q(mini('0 .. 1*2'), 0, 1)).toEqual([
+      [0, 0.25, 0],
+      [0.25, 0.5, 1],
+      [0.5, 0.75, 0],
+      [0.75, 1, 1],
+    ])
+    expect(q(mini('.5 1'), 0, 1)).toEqual([
+      [0, 0.5, 0.5],
+      [0.5, 1, 1],
+    ])
+    expect(q(mini('bd:3 c4.x'), 0, 1).map((h) => h[2])).toEqual(['bd:3', 'c4.x'])
+  })
+})
+
 describe('mini: modifiers', () => {
   it('"a*2 b": fast within the slot', () => {
     expect(q(mini('a*2 b'), 0, 1)).toEqual([
       [0, 1 / 4, 'a'],
       [1 / 4, 1 / 2, 'a'],
       [1 / 2, 1, 'b'],
+    ])
+  })
+
+  it('"a*[2 3]": pattern-valued speed squeeze-binds per factor slot', () => {
+    // Factor [2 3] → two half-cycle windows; a*2 in the first, a*3 in the second.
+    expect(q(mini('a*[2 3]'), 0, 1)).toEqual([
+      [0, 0.25, 'a'],
+      [0.25, 0.5, 'a'],
+      [0.5, 2 / 3, 'a'],
+      [2 / 3, 5 / 6, 'a'],
+      [5 / 6, 1, 'a'],
+    ])
+  })
+
+  it('"a/<2 1>": pattern-valued slow via alternation factor', () => {
+    // Alternation supplies one factor per cycle; squeezeBind maps one relative
+    // cycle of pat.slow(n) onto that window — so slow(2) still fills the
+    // outer cycle (the first half of the stretched event).
+    expect(q(mini('a/<2 1>'), 0, 1)).toEqual([[0, 1, 'a']])
+    expect(q(mini('a/<2 1>'), 1, 2)).toEqual([[1, 2, 'a']])
+  })
+
+  it('"a/[2 1]": sequence factor varies slowdown within the cycle', () => {
+    // First half: slow(2) squeezed into [0,0.5); second: identity into [0.5,1).
+    expect(q(mini('a/[2 1]'), 0, 1)).toEqual([
+      [0, 0.5, 'a'],
+      [0.5, 1, 'a'],
     ])
   })
 

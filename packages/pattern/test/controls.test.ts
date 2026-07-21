@@ -171,6 +171,30 @@ describe('control methods on Pattern<ControlMap>', () => {
   })
 })
 
+describe('.striate()', () => {
+  it('chops into n slices with begin/end fractions', () => {
+    const p = note(60).sound('vox').striate(4)
+    expect(
+      q(p, 0, 1).map(([, , c]) => {
+        const m = c as ControlMap
+        return [m.begin, m.end, m.note, m.sound]
+      }),
+    ).toEqual([
+      [0, 0.25, 60, 'vox'],
+      [0.25, 0.5, 60, 'vox'],
+      [0.5, 0.75, 60, 'vox'],
+      [0.75, 1, 60, 'vox'],
+    ])
+  })
+
+  it('striate(1) sets full region; rejects bad n', () => {
+    const m = q(note(60).striate(1), 0, 1)[0]![2] as ControlMap
+    expect(m.begin).toBe(0)
+    expect(m.end).toBe(1)
+    expect(() => note(60).striate(0)).toThrow(RangeError)
+  })
+})
+
 describe('.scale()', () => {
   it('maps n through the scale to an absolute midi note, keeping n', () => {
     const p = n('0 1 2 7 -1').scale('c major')
