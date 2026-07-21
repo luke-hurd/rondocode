@@ -488,3 +488,62 @@ a:hover {
     min-width: 0;
   }
 }
+
+/* global docs search (in the hero) */
+.doc-search {
+  width: 100%;
+  margin-top: var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
+.doc-search:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.doc-nohits {
+  color: var(--c-dim);
+  font-family: var(--mono);
+}
+
+/* hero mini-demo: a touch more prominent than a guide block */
+.doc-hero-demo {
+  margin-bottom: var(--sp-8);
+  border-color: var(--c-accent-alt);
+}
+
+/* nav items: a jump link plus a reveal-on-hover "open in editor" icon */
+.nav-item {
+  display: flex;
+  align-items: center;
+}
+.nav-item > a:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.nav-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
+  color: var(--c-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.nav-open svg {
+  width: 13px;
+  height: 13px;
+}
+.nav-item:hover .nav-open,
+.nav-open:focus-visible {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .nav-open:hover {
+    color: var(--c-accent);
+  }
+}
